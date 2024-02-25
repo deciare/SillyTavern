@@ -34,6 +34,7 @@ const presetManagers = {};
  * Automatically select a preset for current API based on character or group name.
  */
 function autoSelectPreset() {
+    return;
     const presetManager = getPresetManager();
 
     if (!presetManager) {

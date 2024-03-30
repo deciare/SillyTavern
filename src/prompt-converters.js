@@ -89,11 +89,16 @@ function convertClaudeMessages(messages, prefillString, useSysPrompt, humanMsgFi
             if (messages[i].role !== 'system') {
                 break;
             }
+            // Append example names if not already done by the frontend (e.g. for group chats).
             if (userName && messages[i].name === 'example_user') {
-                messages[i].content = `${userName}: ${messages[i].content}`;
+                if (!messages[i].content.startsWith(`${userName}: `)) {
+                    messages[i].content = `${userName}: ${messages[i].content}`;
+                }
             }
             if (charName && messages[i].name === 'example_assistant') {
-                messages[i].content = `${charName}: ${messages[i].content}`;
+                if (!messages[i].content.startsWith(`${charName}: `)) {
+                    messages[i].content = `${charName}: ${messages[i].content}`;
+                }
             }
             systemPrompt += `${messages[i].content}\n\n`;
         }
@@ -192,53 +197,73 @@ function convertClaudeMessages(messages, prefillString, useSysPrompt, humanMsgFi
 function convertGooglePrompt(messages, model) {
     // This is a 1x1 transparent PNG
     const PNG_PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+    const visionSupportedModels = [
+        'gemini-1.0-pro-vision-latest',
+        'gemini-1.5-pro-latest',
+        'gemini-pro-vision',
+    ];
+
+    const isMultimodal = visionSupportedModels.includes(model);
+    let hasImage = false;
+
     const contents = [];
-    let lastRole = '';
-    let currentText = '';
+    messages.forEach((message, index) => {
+        // fix the roles
+        if (message.role === 'system') {
+            message.role = 'user';
+        } else if (message.role === 'assistant') {
+            message.role = 'model';
+        }
 
-    const isMultimodal = model === 'gemini-pro-vision';
-
-    if (isMultimodal) {
-        const combinedText = messages.map((message) => {
-            const role = message.role === 'assistant' ? 'MODEL: ' : 'USER: ';
-            return role + message.content;
-        }).join('\n\n').trim();
-
-        const imageEntry = messages.find((message) => message.content?.[1]?.image_url);
-        const imageData = imageEntry?.content?.[1]?.image_url?.data ?? PNG_PIXEL;
-        contents.push({
-            parts: [
-                { text: combinedText },
-                {
-                    inlineData: {
-                        mimeType: 'image/png',
-                        data: imageData,
-                    },
-                },
-            ],
-            role: 'user',
-        });
-    } else {
-        messages.forEach((message, index) => {
-            const role = message.role === 'assistant' ? 'model' : 'user';
-            if (lastRole === role) {
-                currentText += '\n\n' + message.content;
+        // similar story as claude
+        if (message.name) {
+            if (Array.isArray(message.content)) {
+                message.content[0].text = `${message.name}: ${message.content[0].text}`;
             } else {
-                if (currentText !== '') {
-                    contents.push({
-                        parts: [{ text: currentText.trim() }],
-                        role: lastRole,
+                message.content = `${message.name}: ${message.content}`;
+            }
+            delete message.name;
+        }
+
+        //create the prompt parts
+        const parts = [];
+        if (typeof message.content === 'string') {
+            parts.push({ text: message.content });
+        } else if (Array.isArray(message.content)) {
+            message.content.forEach((part) => {
+                if (part.type === 'text') {
+                    parts.push({ text: part.text });
+                } else if (part.type === 'image_url' && isMultimodal) {
+                    parts.push({
+                        inlineData: {
+                            mimeType: 'image/png',
+                            data: part.image_url.url,
+                        },
                     });
+                    hasImage = true;
                 }
-                currentText = message.content;
-                lastRole = role;
-            }
-            if (index === messages.length - 1) {
-                contents.push({
-                    parts: [{ text: currentText.trim() }],
-                    role: lastRole,
-                });
-            }
+            });
+        }
+
+        // merge consecutive messages with the same role
+        if (index > 0 && message.role === contents[contents.length - 1].role) {
+            contents[contents.length - 1].parts[0].text += '\n\n' + parts[0].text;
+        } else {
+            contents.push({
+                role: message.role,
+                parts: parts,
+            });
+        }
+    });
+
+    // pro 1.5 doesn't require a dummy image to be attached, other vision models do
+    if (isMultimodal && model !== 'gemini-1.5-pro-latest' && !hasImage) {
+        contents[0].parts.push({
+            inlineData: {
+                mimeType: 'image/png',
+                data: PNG_PIXEL,
+            },
         });
     }
 

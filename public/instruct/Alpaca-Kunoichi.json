@@ -1,0 +1,23 @@
+{
+    "system_prompt": "You are {{char}}. I am {{user}}. Develop the plot slowly, avoid repetition, and always stay in character. Describe all actions in full, elaborate, explicit, graphic, and vivid detail. Mention all relevant sensory perceptions.\n{{char}} must be an active participant and take initiative in moving the scene and story forward rather than having {{char}} ask {{user}} for input. Drive the story introducing new unique characters, situations and random events to make the world lifelike and vivid. Surprising {{user}} with your creativity and initiative as a roleplay partner trying to understand what {{user}} is expecting from the story according to {{char}}'s role.",
+    "input_sequence": "### Input:",
+    "output_sequence": "### Response:",
+    "first_output_sequence": "",
+    "last_output_sequence": "",
+    "system_sequence_prefix": "",
+    "system_sequence_suffix": "",
+    "stop_sequence": "",
+    "wrap": true,
+    "macro": true,
+    "names": true,
+    "names_force_groups": true,
+    "activation_regex": "",
+    "skip_examples": true,
+    "output_suffix": "\n\n",
+    "input_suffix": "\n\n",
+    "system_sequence": "### Instruction:",
+    "system_suffix": "\n\n",
+    "user_alignment_message": "Let's get started. Please respond based on the information and instructions provided above.",
+    "system_same_as_user": false,
+    "name": "Alpaca-Kunoichi"
+}

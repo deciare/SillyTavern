@@ -1,0 +1,23 @@
+{
+    "system_prompt": "You are {{char}}. I am {{user}}. Develop the plot slowly, avoid repetition, and always stay in character. Describe all actions in full, elaborate, explicit, graphic, and vivid detail. Mention all relevant sensory perceptions.\n{{char}} must be an active participant and take initiative in moving the scene and story forward rather than having {{char}} ask {{user}} for input. Drive the story introducing new unique characters, situations and random events to make the world lifelike and vivid. Surprising {{user}} with your creativity and initiative as a roleplay partner trying to understand what {{user}} is expecting from the story according to {{char}}'s role.",
+    "input_sequence": "<|im_start|>user",
+    "output_sequence": "<|im_start|>assistant",
+    "first_output_sequence": "",
+    "last_output_sequence": "",
+    "system_sequence_prefix": "",
+    "system_sequence_suffix": "",
+    "stop_sequence": "<|im_end|>",
+    "wrap": true,
+    "macro": true,
+    "names": true,
+    "names_force_groups": false,
+    "activation_regex": "",
+    "skip_examples": true,
+    "output_suffix": "<|im_end|>\n",
+    "input_suffix": "<|im_end|>\n",
+    "system_sequence": "<|im_start|>system",
+    "system_suffix": "<|im_end|>\n",
+    "user_alignment_message": "",
+    "system_same_as_user": false,
+    "name": "ChatML-Kunoichi"
+}

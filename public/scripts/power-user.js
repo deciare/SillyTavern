@@ -10,7 +10,7 @@ import {
     eventSource,
     event_types,
     getCurrentChatId,
-    printCharacters,
+    printCharactersDebounced,
     setCharacterId,
     setEditedMessageId,
     renderTemplate,
@@ -118,6 +118,8 @@ let power_user = {
     markdown_escape_strings: '',
     chat_truncation: 100,
     streaming_fps: 30,
+    smooth_streaming: false,
+    smooth_streaming_speed: 50,
 
     ui_mode: ui_mode.POWER,
     fast_ui_mode: true,
@@ -1295,7 +1297,7 @@ async function applyTheme(name) {
             key: 'bogus_folders',
             action: async () => {
                 $('#bogus_folders').prop('checked', power_user.bogus_folders);
-                await printCharacters(true);
+                printCharactersDebounced();
             },
         },
         {
@@ -1543,6 +1545,9 @@ function loadPowerUserSettings(settings, data) {
 
     $('#streaming_fps').val(power_user.streaming_fps);
     $('#streaming_fps_counter').val(power_user.streaming_fps);
+
+    $('#smooth_streaming').prop('checked', power_user.smooth_streaming);
+    $('#smooth_streaming_speed').val(power_user.smooth_streaming_speed);
 
     $('#font_scale').val(power_user.font_scale);
     $('#font_scale_counter').val(power_user.font_scale);
@@ -2941,6 +2946,16 @@ $(document).ready(() => {
         saveSettingsDebounced();
     });
 
+    $('#smooth_streaming').on('input', function () {
+        power_user.smooth_streaming = !!$(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $('#smooth_streaming_speed').on('input', function () {
+        power_user.smooth_streaming_speed = Number($('#smooth_streaming_speed').val());
+        saveSettingsDebounced();
+    });
+
     $('input[name="font_scale"]').on('input', async function (e) {
         power_user.font_scale = Number(e.target.value);
         $('#font_scale_counter').val(power_user.font_scale);
@@ -3052,7 +3067,7 @@ $(document).ready(() => {
 
     $('#show_card_avatar_urls').on('input', function () {
         power_user.show_card_avatar_urls = !!$(this).prop('checked');
-        printCharacters();
+        printCharactersDebounced();
         saveSettingsDebounced();
     });
 
@@ -3075,7 +3090,7 @@ $(document).ready(() => {
         power_user.sort_field = $(this).find(':selected').data('field');
         power_user.sort_order = $(this).find(':selected').data('order');
         power_user.sort_rule = $(this).find(':selected').data('rule');
-        printCharacters();
+        printCharactersDebounced();
         saveSettingsDebounced();
     });
 
@@ -3372,15 +3387,15 @@ $(document).ready(() => {
     $('#bogus_folders').on('input', function () {
         const value = !!$(this).prop('checked');
         power_user.bogus_folders = value;
+        printCharactersDebounced();
         saveSettingsDebounced();
-        printCharacters(true);
     });
 
     $('#aux_field').on('change', function () {
         const value = $(this).find(':selected').val();
         power_user.aux_field = String(value);
+        printCharactersDebounced();
         saveSettingsDebounced();
-        printCharacters(false);
     });
 
     $('#restore_user_input').on('input', function () {

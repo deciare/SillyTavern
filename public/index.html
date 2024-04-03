@@ -458,7 +458,7 @@
                                         </span>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openai,claude,windowai,openrouter,ai21,scale,makersuite,mistralai,custom">
+                                <div class="range-block" data-source="openai,claude,windowai,openrouter,ai21,scale,makersuite,mistralai,custom,cohere">
                                     <div class="range-block-title" data-i18n="Temperature">
                                         Temperature
                                     </div>
@@ -471,7 +471,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,ai21,custom">
+                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,ai21,custom,cohere">
                                     <div class="range-block-title" data-i18n="Frequency Penalty">
                                         Frequency Penalty
                                     </div>
@@ -484,7 +484,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,ai21,custom">
+                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,ai21,custom,cohere">
                                     <div class="range-block-title" data-i18n="Presence Penalty">
                                         Presence Penalty
                                     </div>
@@ -510,20 +510,20 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div data-newbie-hidden class="range-block" data-source="claude,openrouter,ai21,makersuite">
+                                <div data-newbie-hidden class="range-block" data-source="claude,openrouter,ai21,makersuite,cohere">
                                     <div class="range-block-title" data-i18n="Top K">
                                         Top K
                                     </div>
                                     <div class="range-block-range-and-counter">
                                         <div class="range-block-range">
-                                            <input type="range" id="top_k_openai" name="volume" min="0" max="200" step="1">
+                                            <input type="range" id="top_k_openai" name="volume" min="0" max="500" step="1">
                                         </div>
                                         <div class="range-block-counter">
                                             <input type="number" min="0" max="200" step="1" data-for="top_k_openai" id="top_k_counter_openai">
                                         </div>
                                     </div>
                                 </div>
-                                <div data-newbie-hidden class="range-block" data-source="openai,claude,openrouter,ai21,scale,makersuite,mistralai,custom">
+                                <div data-newbie-hidden class="range-block" data-source="openai,claude,openrouter,ai21,scale,makersuite,mistralai,custom,cohere">
                                     <div class="range-block-title" data-i18n="Top-p">
                                         Top P
                                     </div>
@@ -759,7 +759,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,mistralai,custom">
+                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,mistralai,custom,cohere">
                                     <div class="range-block-title justifyLeft" data-i18n="Seed">
                                         Seed
                                     </div>
@@ -1516,6 +1516,17 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <div data-newbie-hidden id="json_schema_block" data-tg-type="tabby" class="wide100p">
+                                        <hr class="wide100p">
+                                        <h4 class="wide100p textAlignCenter"><span data-i18n="JSON Schema">JSON Schema</span>
+                                            <a href="https://json-schema.org/learn/getting-started-step-by-step" target="_blank">
+                                                <small>
+                                                    <div class="fa-solid fa-circle-question note-link-span"></div>
+                                                </small>
+                                            </a>
+                                        </h4>
+                                        <textarea id="tabby_json_schema" rows="4" class="text_pole textarea_compact monospace" data-i18n="[placeholder]Type in the desired JSON schema" placeholder="Type in the desired JSON schema"></textarea>
+                                    </div>
                                     <div data-newbie-hidden id="grammar_block_ooba" class="wide100p">
                                         <hr class="wide100p">
                                         <h4 class="wide100p textAlignCenter">
@@ -1942,10 +1953,6 @@
                             <div data-for="api_key_novel" class="neutral_warning" data-i18n="For privacy reasons, your API key will be hidden after you reload the page.">
                                 For privacy reasons, your API key will be hidden after you reload the page.
                             </div>
-                            <div class="flex-container">
-                                <div id="api_button_novel" class="api_button menu_button" type="submit" data-i18n="Connect">Connect</div>
-                                <div class="api_loading menu_button" data-i18n="Cancel">Cancel</div>
-                            </div>
                             <h4><span data-i18n="Novel AI Model">Novel AI Model</span>
                                 <a href="https://docs.sillytavern.app/usage/api-connections/novelai/#models" class="notes-link" target="_blank">
                                     <span class="fa-solid fa-circle-question note-link-span"></span>
@@ -1955,6 +1962,10 @@
                                 <option value="clio-v1">Clio</option>
                                 <option value="kayra-v1">Kayra</option>
                             </select>
+                            <div class="flex-container">
+                                <div id="api_button_novel" class="api_button menu_button" type="submit" data-i18n="Connect">Connect</div>
+                                <div class="api_loading menu_button" data-i18n="Cancel">Cancel</div>
+                            </div>
                         </form>
                         <div class="online_status">
                             <div class="online_status_indicator"></div>
@@ -2151,6 +2162,15 @@
                                         ggerganov/llama.cpp (inference server)
                                     </a>
                                 </div>
+                                <h4 data-i18n="API key (optional)">API key (optional)</h4>
+                                <div class="flex-container">
+                                    <input id="api_key_llamacpp" name="api_key_llamacpp" class="text_pole flex1 wide100p" maxlength="500" size="35" type="text" autocomplete="off">
+                                    <div title="Clear your API key" data-i18n="[title]Clear your API key" class="menu_button fa-solid fa-circle-xmark clear-api-key" data-key="api_key_llamacpp">
+                                    </div>
+                                </div>
+                                <div data-for="api_key_llamacpp" class="neutral_warning" data-i18n="For privacy reasons, your API key will be hidden after you reload the page.">
+                                    For privacy reasons, your API key will be hidden after you reload the page.
+                                </div>
                                 <div class="flex1">
                                     <h4 data-i18n="API url">API URL</h4>
                                     <small data-i18n="Example: 127.0.0.1:8080">Example: http://127.0.0.1:8080</small>
@@ -2250,15 +2270,20 @@
                             Chat Completion Source
                         </h4>
                         <select id="chat_completion_source">
-                            <option value="openai">OpenAI</option>
-                            <option value="windowai">Window AI</option>
-                            <option value="openrouter">OpenRouter</option>
-                            <option value="claude">Claude</option>
-                            <option value="scale">Scale</option>
-                            <option value="ai21">AI21</option>
-                            <option value="makersuite">Google MakerSuite</option>
-                            <option value="mistralai">MistralAI</option>
-                            <option value="custom">Custom (OpenAI-compatible)</option>
+                            <optgroup>
+                                <option value="openai">OpenAI</option>
+                                <option value="custom">Custom (OpenAI-compatible)</option>
+                            </optgroup>
+                            <optgroup>
+                                <option value="ai21">AI21</option>
+                                <option value="claude">Claude</option>
+                                <option value="cohere">Cohere</option>
+                                <option value="makersuite">Google MakerSuite</option>
+                                <option value="mistralai">MistralAI</option>
+                                <option value="openrouter">OpenRouter</option>
+                                <option value="scale">Scale</option>
+                                <option value="windowai">Window AI</option>
+                            </optgroup>
                         </select>
                         <div data-newbie-hidden class="inline-drawer wide100p" data-source="openai,claude,mistralai">
                             <div class="inline-drawer-toggle inline-drawer-header">
@@ -2464,6 +2489,20 @@
                             </div>
                         </form>
                         <form id="openrouter_form" data-source="openrouter" action="javascript:void(null);" method="post" enctype="multipart/form-data">
+                            <h4 data-i18n="OpenRouter API Key">OpenRouter API Key</h4>
+                            <div>
+                                <small data-i18n="Click Authorize below or get the key from">
+                                    Click "Authorize" below or get the key from </small> <a target="_blank" href="https://openrouter.ai/keys/">OpenRouter</a>.
+                                <br>
+                                <a href="https://openrouter.ai/account" target="_blank" data-i18n="View Remaining Credits">View Remaining Credits</a>
+                            </div>
+                            <div class="flex-container">
+                                <input id="api_key_openrouter" name="api_key_openrouter" class="text_pole flex1 api_key_openrouter" maxlength="500" value="" type="text" autocomplete="off">
+                                <div title="Clear your API key" data-i18n="[title]Clear your API key" class="menu_button fa-solid fa-circle-xmark clear-api-key" data-key="api_key_openrouter"></div>
+                            </div>
+                            <div data-for="api_key_openrouter" class="neutral_warning">
+                                For privacy reasons, your API key will be hidden after you reload the page.
+                            </div>
                             <div>
                                 <h4 data-i18n="OpenRouter Model">OpenRouter Model</h4>
                                 <select id="model_openrouter_select">
@@ -2526,20 +2565,6 @@
                                         advanced formatting settings (except instruct System Prompt). If disabled, the prompt will be formatted by OpenRouter.
                                     </span>
                                 </div>
-                            </div>
-                            <h4 data-i18n="OpenRouter API Key">OpenRouter API Key</h4>
-                            <div>
-                                <small data-i18n="Click Authorize below or get the key from">
-                                    Click "Authorize" below or get the key from </small> <a target="_blank" href="https://openrouter.ai/keys/">OpenRouter</a>.
-                                <br>
-                                <a href="https://openrouter.ai/account" target="_blank" data-i18n="View Remaining Credits">View Remaining Credits</a>
-                            </div>
-                            <div class="flex-container">
-                                <input id="api_key_openrouter" name="api_key_openrouter" class="text_pole flex1 api_key_openrouter" maxlength="500" value="" type="text" autocomplete="off">
-                                <div title="Clear your API key" data-i18n="[title]Clear your API key" class="menu_button fa-solid fa-circle-xmark clear-api-key" data-key="api_key_openrouter"></div>
-                            </div>
-                            <div data-for="api_key_openrouter" class="neutral_warning">
-                                For privacy reasons, your API key will be hidden after you reload the page.
                             </div>
                         </form>
                         <form id="scale_form" data-source="scale" action="javascript:void(null);" method="post" enctype="multipart/form-data">
@@ -2646,6 +2671,30 @@
                                         <option value="mistral-small-2402">mistral-small-2402</option>
                                         <option value="mistral-medium-2312">mistral-medium-2312</option>
                                         <option value="mistral-large-2402">mistral-large-2402</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                        </form>
+                        <form id="cohere_form" data-source="cohere" action="javascript:void(null);" method="post" enctype="multipart/form-data">
+                            <h4 data-i18n="Cohere API Key">Cohere API Key</h4>
+                            <div class="flex-container">
+                                <input id="api_key_cohere" name="api_key_cohere" class="text_pole flex1" maxlength="500" value="" type="text" autocomplete="off">
+                                <div title="Clear your API key" data-i18n="[title]Clear your API key" class="menu_button fa-solid fa-circle-xmark clear-api-key" data-key="api_key_cohere"></div>
+                            </div>
+                            <div data-for="api_key_cohere" class="neutral_warning">
+                                For privacy reasons, your API key will be hidden after you reload the page.
+                            </div>
+                            <div>
+                                <h4 data-i18n="Cohere Model">Cohere Model</h4>
+                                <select id="model_cohere_select">
+                                    <optgroup label="Stable">
+                                        <option value="command-light">command-light</option>
+                                        <option value="command">command</option>
+                                        <option value="command-r">command-r</option>
+                                    </optgroup>
+                                    <optgroup label="Nightly">
+                                        <option value="command-light-nightly">command-light-nightly</option>
+                                        <option value="command-nightly">command-nightly</option>
                                     </optgroup>
                                 </select>
                             </div>
@@ -3569,6 +3618,24 @@
                                         </div>
                                     </div>
                                 </div>
+                                <label class="checkbox_label flexWrap" for="smooth_streaming">
+                                    <input id="smooth_streaming" type="checkbox" />
+                                    <div class="flex-container alignItemsBaseline">
+                                        <span data-i18n="Smooth Streaming">
+                                            Smooth Streaming
+                                        </span>
+                                        <i class="fa-solid fa-flask" title="Experimental feature. May not work for all backends."></i>
+                                    </div>
+                                    <div id="smooth_streaming_speed_control" class="flexBasis100p wide100p">
+                                        <small class="flex justifyCenter" data-i18n="Speed">Speed</small>
+                                        <input type="range" id="smooth_streaming_speed" name="smooth_streaming_speed" min="0" max="100" step="10" value="50">
+                                        <div class="slider_hint">
+                                            <span data-i18n="Slow">Slow</span>
+                                            <span data-i18n=""></span>
+                                            <span data-i18n="Slow">Fast</span>
+                                        </div>
+                                    </div>
+                                </label>
                             </div>
                         </div>
                     </div>
@@ -4387,8 +4454,10 @@
 
                     <div id="rm_print_characters_pagination">
                         <i id="charListGridToggle" class="fa-solid fa-table-cells-large menu_button" title="Toggle character grid view" data-i18n="[title]Toggle character grid view"></i>
-                        <i id="bulkEditButton" class="fa-solid fa-edit menu_button bulkEditButton" title="Bulk edit characters" data-i18n="[title]Bulk edit characters"></i>
-                        <i id="bulkDeleteButton" class="fa-solid fa-trash menu_button bulkDeleteButton" title="Bulk delete characters" data-i18n="[title]Bulk delete characters" style="display: none;"></i>
+                        <i id="bulkEditButton" class="fa-solid fa-edit menu_button bulkEditButton" title="Bulk edit characters&#13;&#13;Click to toggle characters&#13;Shift + Click to select/deselect a range of characters&#13;Right-click for actions" data-i18n="[title]Bulk edit characters&#13;&#13;Click to toggle characters&#13;Shift + Click to select/deselect a range of characters&#13;Right-click for actions"></i>
+                        <div id="bulkSelectedCount" class="bulkEditOptionElement paginationjs-nav"></div>
+                        <i id="bulkSelectAllButton" class="fa-solid fa-check-double menu_button bulkEditOptionElement bulkSelectAllButton" title="Bulk select all characters" data-i18n="[title]Bulk select all characters" style="display: none;"></i>
+                        <i id="bulkDeleteButton" class="fa-solid fa-trash menu_button bulkEditOptionElement bulkDeleteButton" title="Bulk delete characters" data-i18n="[title]Bulk delete characters" style="display: none;"></i>
                     </div>
                     <div id="rm_print_characters_block" class="flexFlowColumn"></div>
                 </div>
@@ -4505,7 +4574,7 @@
                         Character's Note
                     </span>
                 </h4>
-                <textarea id="depth_prompt_prompt" name="depth_prompt_prompt" class="text_pole" rows="2" maxlength="50000" autocomplete="off" form="form_create" placeholder="(Text to be inserted in-chat @ designated depth)"></textarea>
+                <textarea id="depth_prompt_prompt" name="depth_prompt_prompt" class="text_pole" rows="5" maxlength="50000" autocomplete="off" form="form_create" placeholder="(Text to be inserted in-chat @ designated depth and role)"></textarea>
             </div>
             <div>
                 <h4>
@@ -4513,7 +4582,17 @@
                         @ Depth
                     </span>
                 </h4>
-                <input id="depth_prompt_depth" name="depth_prompt_depth" class="text_pole widthUnset m-t-0" type="number" min="0" max="999" value="4" form="form_create" />
+                <input id="depth_prompt_depth" name="depth_prompt_depth" class="text_pole textarea_compact m-t-0" type="number" min="0" max="999" value="4" form="form_create" />
+                <h4>
+                    <span data-i18n="Role">
+                        Role
+                    </span>
+                </h4>
+                <select id="depth_prompt_role" name="depth_prompt_role" form="form_create" class="text_pole textarea_compact m-t-0">
+                    <option value="system" data-i18n="System">System</option>
+                    <option value="user" data-i18n="User">User</option>
+                    <option value="assistant" data-i18n="Assistant">Assistant</option>
+                </select>
                 <div class="extension_token_counter">
                     Tokens: <span data-token-counter="depth_prompt_prompt" data-token-permanent="true">counting...</span>
                 </div>

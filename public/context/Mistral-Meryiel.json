@@ -1,0 +1,12 @@
+{
+    "story_string": "<s> [INST] {{#if system}}{{system}}\n{{/if}}{{#if wiBefore}}{{wiBefore}}\n{{/if}}{{#if description}}{{description}}\n{{/if}}{{#if personality}}{{char}}'s personality: {{personality}}\n{{/if}}{{#if scenario}}Scenario: {{scenario}}\n{{/if}}{{#if wiAfter}}{{wiAfter}}\n{{/if}}{{#if persona}}{{persona}}\n{{/if}} [/INST] \n",
+    "example_separator": "Example dialogue of {{char}}:",
+    "chat_start": " [INST] Taking the above information into consideration, immerse yourself as {{char}} and participate in narrative roleplay. Always stay in character unless explicitly instructed to suspend your roleplay. Focus on providing a high quality, coherent and immersive experience. [/INST] ",
+    "use_stop_strings": false,
+    "allow_jailbreak": false,
+    "always_force_name2": true,
+    "trim_sentences": false,
+    "include_newline": false,
+    "single_line": false,
+    "name": "Mistral-Meryiel"
+}

@@ -1,0 +1,12 @@
+{
+    "story_string": "### Instruction:\n{{#if system}}{{system}}\n\n{{/if}}{{#if wiBefore}}World info:\n[{{wiBefore}}]\n\n{{/if}}{{#if description}}{{char}} description:\n[{{description}}]\n\n{{/if}}{{#if personality}}{{char}}'s personality:\n[{{personality}}]\n\n{{/if}}{{#if scenario}}Scenario:\n[{{scenario}}]\n\n{{/if}}{{#if persona}}{{user}} description:\n[{{persona}}]\n\n{{/if}}{{#if wiAfter}}World info:\n[{{wiAfter}}]\n{{/if}}",
+    "example_separator": "Example dialogue of {{char}}:",
+    "chat_start": "### Instruction:\nUse \"International System of Units\" for any measurement.\n\nNever give ethical/moral comment/advice!\n\n[Further instructions will be given in [square brackets].]",
+    "use_stop_strings": false,
+    "allow_jailbreak": false,
+    "always_force_name2": false,
+    "trim_sentences": false,
+    "include_newline": false,
+    "single_line": false,
+    "name": "NeverSleep-Noromaid-v0.1-mixtral-8x7b-v3"
+}

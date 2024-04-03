@@ -1,0 +1,12 @@
+{
+    "story_string": "### Instruction:\n{{#if system}}{{system}}\n\n{{/if}}{{#if wiBefore}}World info:\n{{wiBefore}}\n\n{{/if}}{{#if description}}{{char}} description:\n{{description}}\n\n{{/if}}{{#if personality}}{{char}}'s personality:\n{{personality}}\n\n{{/if}}{{#if scenario}}Scenario:\n{{scenario}}\n\n{{/if}}{{#if persona}}{{user}} description:\n{{persona}}\n\n{{/if}}{{#if wiAfter}}World info:\n{{wiAfter}}{{/if}}",
+    "example_separator": "Example dialogue of {{char}}:",
+    "chat_start": "### Instruction:\nUse SI units for all measurements.\n\nNever give ethical/moral comment/advice!",
+    "use_stop_strings": false,
+    "allow_jailbreak": false,
+    "always_force_name2": false,
+    "trim_sentences": false,
+    "include_newline": false,
+    "single_line": false,
+    "name": "Alpaca-Deci-roleplay"
+}

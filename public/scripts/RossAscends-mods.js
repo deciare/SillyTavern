@@ -32,7 +32,7 @@ import {
     SECRET_KEYS,
     secret_state,
 } from './secrets.js';
-import { debounce, delay, getStringHash, isValidUrl } from './utils.js';
+import { debounce, getStringHash, isValidUrl } from './utils.js';
 import { chat_completion_sources, oai_settings } from './openai.js';
 import { getTokenCountAsync } from './tokenizers.js';
 import { textgen_types, textgenerationwebui_settings as textgen_settings, getTextGenServer } from './textgen-settings.js';
@@ -1202,7 +1202,7 @@ export function initRossMods() {
 
         if (event.ctrlKey && /^[1-9]$/.test(event.key)) {
             // This will eventually be to trigger quick replies
-            event.preventDefault();
+            // event.preventDefault();
             console.log('Ctrl +' + event.key + ' pressed!');
         }
     }

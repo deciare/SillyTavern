@@ -34,6 +34,7 @@ import {
     checkEmbeddedWorld,
     setWorldInfoButtonClass,
     importWorldInfo,
+    wi_anchor_position,
 } from './scripts/world-info.js';
 
 import {
@@ -423,8 +424,6 @@ const characterContextMenu = new CharacterContextMenu(characterGroupOverlay);
 eventSource.on(event_types.CHARACTER_PAGE_LOADED, characterGroupOverlay.onPageLoad);
 console.debug('Character context menu initialized', characterContextMenu);
 
-hljs.addPlugin({ 'before:highlightElement': ({ el }) => { el.textContent = el.innerText; } });
-
 // Markdown converter
 export let mesForShowdownParse; //intended to be used as a context to compare showdown strings against
 let converter;
@@ -451,7 +450,7 @@ let safetychat = [
 let chatSaveTimeout;
 let importFlashTimeout;
 export let isChatSaving = false;
-let chat_create_date = 0;
+let chat_create_date = '';
 let firstRun = false;
 let settingsReady = false;
 let currentVersion = '0.0.0';
@@ -3223,32 +3222,6 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         setExtensionPrompt('DEPTH_PROMPT', depthPromptText, extension_prompt_types.IN_CHAT, depthPromptDepth, extension_settings.note.allowWIScan, depthPromptRole);
     }
 
-    // Parse example messages
-    if (!mesExamples.startsWith('<START>')) {
-        mesExamples = '<START>\n' + mesExamples.trim();
-    }
-    if (mesExamples.replace(/<START>/gi, '').trim().length === 0) {
-        mesExamples = '';
-    }
-    const mesExamplesRaw = mesExamples;
-    /**
-     * Adds a block heading to the examples string.
-     * @param {string} examplesStr
-     * @returns {string[]} Examples array with block heading
-     */
-    function addBlockHeading(examplesStr) {
-        const exampleSeparator = power_user.context.example_separator ? `${substituteParams(power_user.context.example_separator)}\n` : '';
-        const blockHeading = main_api === 'openai' ? '<START>\n' : (exampleSeparator || (isInstruct ? '<START>\n' : ''));
-        return examplesStr.split(/<START>/gi).slice(1).map(block => `${blockHeading}${block.trim()}\n`);
-    }
-
-    let mesExamplesArray = addBlockHeading(mesExamples);
-    let mesExamplesRawArray = addBlockHeading(mesExamplesRaw);
-
-    if (mesExamplesArray && isInstruct) {
-        mesExamplesArray = formatInstructModeExamples(mesExamplesArray, name1, name2);
-    }
-
     // First message in fresh 1-on-1 chat reacts to user/character settings changes
     if (chat.length) {
         chat[0].mes = substituteParams(chat[0].mes);
@@ -3317,14 +3290,67 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         force_name2 = false;
     }
 
+    // TODO (kingbri): Migrate to a utility function
+    /**
+     * Parses an examples string.
+     * @param {string} examplesStr
+     * @returns {string[]} Examples array with block heading
+     */
+    function parseMesExamples(examplesStr) {
+        if (examplesStr.length === 0) {
+            return [];
+        }
+
+        if (!examplesStr.startsWith('<START>')) {
+            examplesStr = '<START>\n' + examplesStr.trim();
+        }
+
+        const exampleSeparator = power_user.context.example_separator ? `${substituteParams(power_user.context.example_separator)}\n` : '';
+        const blockHeading = main_api === 'openai' ? '<START>\n' : (exampleSeparator || (isInstruct ? '<START>\n' : ''));
+        const splitExamples = examplesStr.split(/<START>/gi).slice(1).map(block => `${blockHeading}${block.trim()}\n`);
+
+        return splitExamples;
+    }
+
+    let mesExamplesArray = parseMesExamples(mesExamples);
+
     //////////////////////////////////
     // Extension added strings
     // Set non-WI AN
     setFloatingPrompt();
-    // Add WI to prompt (and also inject WI to AN value via hijack)
 
+    // Add WI to prompt (and also inject WI to AN value via hijack)
+    // Make quiet prompt available for WIAN
+    setExtensionPrompt('QUIET_PROMPT', quiet_prompt || '', extension_prompt_types.IN_PROMPT, 0, true);
     const chatForWI = coreChat.map(x => `${x.name}: ${x.mes}`).reverse();
-    let { worldInfoString, worldInfoBefore, worldInfoAfter, worldInfoDepth } = await getWorldInfoPrompt(chatForWI, this_max_context, dryRun);
+    const { worldInfoString, worldInfoBefore, worldInfoAfter, worldInfoExamples, worldInfoDepth } = await getWorldInfoPrompt(chatForWI, this_max_context, dryRun);
+    setExtensionPrompt('QUIET_PROMPT', '', extension_prompt_types.IN_PROMPT, 0, true);
+
+    // Add message example WI
+    for (const example of worldInfoExamples) {
+        const exampleMessage = example.content;
+
+        if (exampleMessage.length === 0) {
+            continue;
+        }
+
+        const formattedExample = baseChatReplace(exampleMessage, name1, name2);
+        const cleanedExample = parseMesExamples(formattedExample);
+
+        // Insert depending on before or after position
+        if (example.position === wi_anchor_position.before) {
+            mesExamplesArray.unshift(...cleanedExample);
+        } else {
+            mesExamplesArray.push(...cleanedExample);
+        }
+    }
+
+    // At this point, the raw message examples can be created
+    const mesExamplesRawArray = [...mesExamplesArray];
+
+    if (mesExamplesArray && isInstruct) {
+        mesExamplesArray = formatInstructModeExamples(mesExamplesArray, name1, name2);
+    }
 
     if (skipWIAN !== true) {
         console.log('skipWIAN not active, adding WIAN');
@@ -4254,7 +4280,6 @@ function unblockGeneration(type) {
     setGenerationProgress(0);
     flushEphemeralStoppingStrings();
     flushWIDepthInjections();
-    $('#send_textarea').removeAttr('disabled');
 }
 
 export function getNextMessageId(type) {
@@ -4385,7 +4410,8 @@ function formatMessageHistoryItem(chatItem, isInstruct, forceOutputSequence) {
     const itemName = chatItem.is_user ? chatItem['name'] : characterName;
     const shouldPrependName = !isNarratorType;
 
-    let textResult = shouldPrependName ? `${itemName}: ${chatItem.mes}\n` : `${chatItem.mes}\n`;
+    // Don't include a name if it's empty
+    let textResult = chatItem?.name && shouldPrependName ? `${itemName}: ${chatItem.mes}\n` : `${chatItem.mes}\n`;
 
     if (isInstruct) {
         textResult = formatInstructModeChat(itemName, chatItem.mes, chatItem.is_user, isNarratorType, chatItem.force_avatar, name1, name2, forceOutputSequence);
@@ -4408,14 +4434,16 @@ export function removeMacros(str) {
  * @param {string} messageText Message text.
  * @param {string} messageBias Message bias.
  * @param {number} [insertAt] Optional index to insert the message at.
- * @params {boolean} [compact] Send as a compact display message.
+ * @param {boolean} [compact] Send as a compact display message.
+ * @param {string} [name] Name of the user sending the message. Defaults to name1.
+ * @param {string} [avatar] Avatar of the user sending the message. Defaults to user_avatar.
  * @returns {Promise<void>} A promise that resolves when the message is inserted.
  */
-export async function sendMessageAsUser(messageText, messageBias, insertAt = null, compact = false) {
+export async function sendMessageAsUser(messageText, messageBias, insertAt = null, compact = false, name = name1, avatar = user_avatar) {
     messageText = getRegexedString(messageText, regex_placement.USER_INPUT);
 
     const message = {
-        name: name1,
+        name: name,
         is_user: true,
         is_system: false,
         send_date: getMessageTimeStamp(),
@@ -4430,8 +4458,8 @@ export async function sendMessageAsUser(messageText, messageBias, insertAt = nul
     }
 
     // Lock user avatar to a persona.
-    if (user_avatar in power_user.personas) {
-        message.force_avatar = getUserAvatar(user_avatar);
+    if (avatar in power_user.personas) {
+        message.force_avatar = getUserAvatar(avatar);
     }
 
     if (messageBias) {
@@ -5260,7 +5288,6 @@ export function activateSendButtons() {
     is_send_press = false;
     $('#send_but').removeClass('displayNone');
     $('#mes_continue').removeClass('displayNone');
-    $('#send_textarea').attr('disabled', false);
     $('.mes_buttons:last').show();
     hideStopButton();
 }
@@ -6477,7 +6504,7 @@ export async function displayPastChats() {
                 $('#select_chat_div').append(template);
 
                 if (currentChat === fileName.toString().replace('.jsonl', '')) {
-                    $('#select_chat_div').find('.select_chat_block:last').attr('highlight', true);
+                    $('#select_chat_div').find('.select_chat_block:last').attr('highlight', String(true));
                 }
             }
         }
@@ -7170,7 +7197,7 @@ function openCharacterWorldPopup() {
             if (previousValue && !name) {
                 try {
                     // Dirty hack to remove embedded lorebook from character JSON data.
-                    const data = JSON.parse($('#character_json_data').val());
+                    const data = JSON.parse(String($('#character_json_data').val()));
 
                     if (data?.data?.character_book) {
                         data.data.character_book = undefined;
@@ -7327,7 +7354,7 @@ function addAlternateGreeting(template, greeting, index, getArray) {
 async function createOrEditCharacter(e) {
     $('#rm_info_avatar').html('');
     const formData = new FormData($('#form_create').get(0));
-    formData.set('fav', fav_ch_checked);
+    formData.set('fav', String(fav_ch_checked));
 
     const rawFile = formData.get('avatar');
     if (rawFile instanceof File) {
@@ -7336,7 +7363,7 @@ async function createOrEditCharacter(e) {
     }
 
     if ($('#form_create').attr('actiontype') == 'createcharacter') {
-        if ($('#character_name_pole').val().length > 0) {
+        if (String($('#character_name_pole').val()).length > 0) {
             if (is_group_generating || is_send_press) {
                 toastr.error('Cannot create characters while generating. Stop the request and try again.', 'Creation aborted');
                 throw new Error('Cannot import character while generating');
@@ -7361,7 +7388,7 @@ async function createOrEditCharacter(e) {
                 url: url,
                 data: formData,
                 beforeSend: function () {
-                    $('#create_button').attr('disabled', true);
+                    $('#create_button').attr('disabled', String(true));
                     $('#create_button').attr('value', '⏳');
                 },
                 cache: false,
@@ -7448,7 +7475,7 @@ async function createOrEditCharacter(e) {
             url: url,
             data: formData,
             beforeSend: function () {
-                $('#create_button').attr('disabled', true);
+                $('#create_button').attr('disabled', String(true));
                 $('#create_button').attr('value', 'Save');
             },
             cache: false,
@@ -8000,6 +8027,11 @@ const CONNECT_API_MAP = {
         selected: 'openai',
         button: '#api_button_openai',
         source: chat_completion_sources.PERPLEXITY,
+    },
+    'groq': {
+        selected: 'openai',
+        button: '#api_button_openai',
+        source: chat_completion_sources.GROQ,
     },
     'infermaticai': {
         selected: 'textgenerationwebui',
@@ -8569,8 +8601,7 @@ jQuery(async function () {
         e.stopPropagation();
         chat_file_for_del = $(this).attr('file_name');
         console.debug('detected cross click for' + chat_file_for_del);
-        popup_type = 'del_chat';
-        callPopup('<h3>Delete the Chat File?</h3>');
+        callPopup('<h3>Delete the Chat File?</h3>', 'del_chat');
     });
 
     $('#advanced_div').click(function () {
@@ -9434,10 +9465,10 @@ jQuery(async function () {
             edit_textarea.height(edit_textarea[0].scrollHeight);
             edit_textarea.focus();
             edit_textarea[0].setSelectionRange(     //this sets the cursor at the end of the text
-                edit_textarea.val().length,
-                edit_textarea.val().length,
+                String(edit_textarea.val()).length,
+                String(edit_textarea.val()).length,
             );
-            if (this_edit_mes_id == chat.length - 1) {
+            if (Number(this_edit_mes_id) === chat.length - 1) {
                 $('#chat').scrollTop(chatScrollPosition);
             }
 
@@ -9660,6 +9691,11 @@ jQuery(async function () {
 
     $('#character_import_file').on('change', async function (e) {
         $('#rm_info_avatar').html('');
+
+        if (!(e.target instanceof HTMLInputElement)) {
+            return;
+        }
+
         if (!e.target.files.length) {
             return;
         }
@@ -9793,7 +9829,7 @@ jQuery(async function () {
     $(document).on('click', '.mes_create_branch', async function () {
         var selected_mes_id = $(this).closest('.mes').attr('mesid');
         if (selected_mes_id !== undefined) {
-            branchChat(selected_mes_id);
+            branchChat(Number(selected_mes_id));
         }
     });
 
@@ -9899,7 +9935,7 @@ jQuery(async function () {
 
         var targetParentHasOpenDrawer = clickTarget.parents('.openDrawer').length;
         if (clickTarget.hasClass('drawer-icon') == false && !clickTarget.hasClass('openDrawer')) {
-            if (jQuery.find('.openDrawer').length !== 0) {
+            if ($('.openDrawer').length !== 0) {
                 if (targetParentHasOpenDrawer === 0) {
                     //console.log($('.openDrawer').not('.pinnedOpen').length);
                     $('.openDrawer').not('.pinnedOpen').addClass('resizing').slideToggle(200, 'swing', function () {
@@ -10144,10 +10180,10 @@ jQuery(async function () {
             const masterSelector = '#' + $(this).data('for');
             const masterElement = $(masterSelector);
             if (e.key === 'Enter') {
-                let manualInput = parseFloat($(this).val());
+                let manualInput = Number($(this).val());
                 if (isManualInput) {
                     //disallow manual inputs outside acceptable range
-                    if (manualInput >= $(this).attr('min') && manualInput <= $(this).attr('max')) {
+                    if (manualInput >= Number($(this).attr('min')) && manualInput <= Number($(this).attr('max'))) {
                         //if value is ok, assign to slider and update handle text and position
                         //newSlider.val(manualInput)
                         //handleSlideEvent.call(newSlider, null, { value: parseFloat(manualInput) }, 'manual');
@@ -10172,10 +10208,10 @@ jQuery(async function () {
         .on('mouseup blur', function () {
             const masterSelector = '#' + $(this).data('for');
             const masterElement = $(masterSelector);
-            let manualInput = parseFloat($(this).val());
+            let manualInput = Number($(this).val());
             if (isManualInput) {
                 //if value is between correct range for the slider
-                if (manualInput >= $(this).attr('min') && manualInput <= $(this).attr('max')) {
+                if (manualInput >= Number($(this).attr('min')) && manualInput <= Number($(this).attr('max'))) {
                     valueBeforeManualInput = manualInput;
                     //set the slider value to input value
                     $(masterElement).val($(this).val()).trigger('input');

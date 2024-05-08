@@ -10,6 +10,7 @@ import { power_user } from './power-user.js';
 import { getTagKeyForEntity } from './tags.js';
 import { resolveVariable } from './variables.js';
 import { debounce_timeout } from './constants.js';
+import { getRegexedString, regex_placement } from './extensions/regex/engine.js';
 
 export {
     world_info,
@@ -57,6 +58,7 @@ let world_info_recursive = false;
 let world_info_overflow_alert = false;
 let world_info_case_sensitive = false;
 let world_info_match_whole_words = false;
+let world_info_use_group_scoring = false;
 let world_info_character_strategy = world_info_insertion_strategy.character_first;
 let world_info_budget_cap = 0;
 const saveWorldDebounced = debounce(async (name, data) => await _save(name, data), debounce_timeout.relaxed);
@@ -73,6 +75,7 @@ const SORT_ORDER_KEY = 'world_info_sort_order';
 const METADATA_KEY = 'world_info';
 
 const DEFAULT_DEPTH = 4;
+const DEFAULT_WEIGHT = 100;
 const MAX_SCAN_DEPTH = 1000;
 
 /**
@@ -80,7 +83,17 @@ const MAX_SCAN_DEPTH = 1000;
  */
 class WorldInfoBuffer {
     // Typedef area
-    /** @typedef {{scanDepth?: number, caseSensitive?: boolean, matchWholeWords?: boolean}} WIScanEntry The entry that triggered the scan */
+    /**
+     * @typedef {object} WIScanEntry The entry that triggered the scan
+     * @property {number} [scanDepth] The depth of the scan
+     * @property {boolean} [caseSensitive] If the scan is case sensitive
+     * @property {boolean} [matchWholeWords] If the scan should match whole words
+     * @property {boolean} [useGroupScoring] If the scan should use group scoring
+     * @property {number} [uid] The UID of the entry that triggered the scan
+     * @property {string[]} [key] The primary keys to scan for
+     * @property {string[]} [keysecondary] The secondary keys to scan for
+     * @property {number} [selectiveLogic] The logic to use for selective activation
+     */
     // End typedef area
 
     /**
@@ -244,6 +257,58 @@ class WorldInfoBuffer {
     cleanExternalActivations() {
         WorldInfoBuffer.externalActivations.splice(0, WorldInfoBuffer.externalActivations.length);
     }
+
+    /**
+     * Gets the match score for the given entry.
+     * @param {WIScanEntry} entry Entry to check
+     * @returns {number} The number of key activations for the given entry
+     */
+    getScore(entry) {
+        const bufferState = this.get(entry);
+        let numberOfPrimaryKeys = 0;
+        let numberOfSecondaryKeys = 0;
+        let primaryScore = 0;
+        let secondaryScore = 0;
+
+        // Increment score for every key found in the buffer
+        if (Array.isArray(entry.key)) {
+            numberOfPrimaryKeys = entry.key.length;
+            for (const key of entry.key) {
+                if (this.matchKeys(bufferState, key, entry)) {
+                    primaryScore++;
+                }
+            }
+        }
+
+        // Increment score for every secondary key found in the buffer
+        if (Array.isArray(entry.keysecondary)) {
+            numberOfSecondaryKeys = entry.keysecondary.length;
+            for (const key of entry.keysecondary) {
+                if (this.matchKeys(bufferState, key, entry)) {
+                    secondaryScore++;
+                }
+            }
+        }
+
+        // No keys == no score
+        if (!numberOfPrimaryKeys) {
+            return 0;
+        }
+
+        // Only positive logic influences the score
+        if (numberOfSecondaryKeys > 0) {
+            switch (entry.selectiveLogic) {
+                // AND_ANY: Add both scores
+                case world_info_logic.AND_ANY:
+                    return primaryScore + secondaryScore;
+                // AND_ALL: Add both scores if all secondary keys are found, otherwise only primary score
+                case world_info_logic.AND_ALL:
+                    return secondaryScore === numberOfSecondaryKeys ? primaryScore + secondaryScore : primaryScore;
+            }
+        }
+
+        return primaryScore;
+    }
 }
 
 export function getWorldInfoSettings() {
@@ -259,6 +324,7 @@ export function getWorldInfoSettings() {
         world_info_match_whole_words,
         world_info_character_strategy,
         world_info_budget_cap,
+        world_info_use_group_scoring,
     };
 }
 
@@ -268,6 +334,13 @@ const world_info_position = {
     ANTop: 2,
     ANBottom: 3,
     atDepth: 4,
+    EMTop: 5,
+    EMBottom: 6,
+};
+
+export const wi_anchor_position = {
+    before: 0,
+    after: 1,
 };
 
 const worldInfoCache = {};
@@ -277,7 +350,7 @@ const worldInfoCache = {};
  * @param {string[]} chat The chat messages to scan.
  * @param {number} maxContext The maximum context size of the generation.
  * @param {boolean} isDryRun If true, the function will not emit any events.
- * @typedef {{worldInfoString: string, worldInfoBefore: string, worldInfoAfter: string, worldInfoDepth: any[]}} WIPromptResult
+ * @typedef {{worldInfoString: string, worldInfoBefore: string, worldInfoAfter: string, worldInfoExamples: any[], worldInfoDepth: any[]}} WIPromptResult
  * @returns {Promise<WIPromptResult>} The world info string and depth.
  */
 async function getWorldInfoPrompt(chat, maxContext, isDryRun) {
@@ -297,7 +370,8 @@ async function getWorldInfoPrompt(chat, maxContext, isDryRun) {
         worldInfoString,
         worldInfoBefore,
         worldInfoAfter,
-        worldInfoDepth: activatedWorldInfo.WIDepthEntries,
+        worldInfoExamples: activatedWorldInfo.EMEntries ?? [],
+        worldInfoDepth: activatedWorldInfo.WIDepthEntries ?? [],
     };
 }
 
@@ -322,10 +396,16 @@ function setWorldInfoSettings(settings, data) {
         world_info_character_strategy = Number(settings.world_info_character_strategy);
     if (settings.world_info_budget_cap !== undefined)
         world_info_budget_cap = Number(settings.world_info_budget_cap);
+    if (settings.world_info_use_group_scoring !== undefined)
+        world_info_use_group_scoring = Boolean(settings.world_info_use_group_scoring);
 
     // Migrate old settings
     if (world_info_budget > 100) {
         world_info_budget = 25;
+    }
+
+    if (world_info_use_group_scoring === undefined) {
+        world_info_use_group_scoring = false;
     }
 
     // Reset selected world from old string and delete old keys
@@ -357,6 +437,7 @@ function setWorldInfoSettings(settings, data) {
     $('#world_info_overflow_alert').prop('checked', world_info_overflow_alert);
     $('#world_info_case_sensitive').prop('checked', world_info_case_sensitive);
     $('#world_info_match_whole_words').prop('checked', world_info_match_whole_words);
+    $('#world_info_use_group_scoring').prop('checked', world_info_use_group_scoring);
 
     $(`#world_info_character_strategy option[value='${world_info_character_strategy}']`).prop('selected', true);
     $('#world_info_character_strategy').val(world_info_character_strategy);
@@ -786,7 +867,7 @@ function displayWorldEntries(name, data, navigation = navigation_option.none) {
 
         // Apply the filter and do the chosen sorting
         entriesArray = worldInfoFilter.applyFilters(entriesArray);
-        entriesArray = sortEntries(entriesArray)
+        entriesArray = sortEntries(entriesArray);
 
         // Run the callback for printing this
         typeof callback === 'function' && callback(entriesArray);
@@ -1016,11 +1097,13 @@ const originalDataKeyMap = {
     'keysecondary': 'secondary_keys',
     'selective': 'selective',
     'matchWholeWords': 'extensions.match_whole_words',
+    'useGroupScoring': 'extensions.use_group_scoring',
     'caseSensitive': 'extensions.case_sensitive',
     'scanDepth': 'extensions.scan_depth',
     'automationId': 'extensions.automation_id',
     'vectorized': 'extensions.vectorized',
     'groupOverride': 'extensions.group_override',
+    'groupWeight': 'extensions.group_weight',
 };
 
 /** Checks the state of the current search, and adds/removes the search sorting option accordingly */
@@ -1394,10 +1477,34 @@ function getWorldEntry(name, data, entry) {
         const uid = $(this).data('uid');
         const value = $(this).prop('checked');
         data.entries[uid].groupOverride = value;
-        setOriginalDataValue(data, uid, 'extensions.groupOverride', data.entries[uid].groupOverride);
+        setOriginalDataValue(data, uid, 'extensions.group_override', data.entries[uid].groupOverride);
         saveWorldInfo(name, data);
     });
     groupOverrideInput.prop('checked', entry.groupOverride).trigger('input');
+
+    // group weight
+    const groupWeightInput = template.find('input[name="groupWeight"]');
+    groupWeightInput.data('uid', entry.uid);
+    groupWeightInput.on('input', function () {
+        const uid = $(this).data('uid');
+        let value = Number($(this).val());
+        const min = Number($(this).attr('min'));
+        const max = Number($(this).attr('max'));
+
+        // Clamp the value
+        if (value < min) {
+            value = min;
+            $(this).val(min);
+        } else if (value > max) {
+            value = max;
+            $(this).val(max);
+        }
+
+        data.entries[uid].groupWeight = !isNaN(value) ? Math.abs(value) : 1;
+        setOriginalDataValue(data, uid, 'extensions.group_weight', data.entries[uid].groupWeight);
+        saveWorldInfo(name, data);
+    });
+    groupWeightInput.val(entry.groupWeight ?? DEFAULT_WEIGHT).trigger('input');
 
     // probability
     if (entry.probability === undefined) {
@@ -1709,6 +1816,19 @@ function getWorldEntry(name, data, entry) {
     });
     matchWholeWordsSelect.val((entry.matchWholeWords === null || entry.matchWholeWords === undefined) ? 'null' : entry.matchWholeWords ? 'true' : 'false').trigger('input');
 
+    // use group scoring select
+    const useGroupScoringSelect = template.find('select[name="useGroupScoring"]');
+    useGroupScoringSelect.data('uid', entry.uid);
+    useGroupScoringSelect.on('input', function () {
+        const uid = $(this).data('uid');
+        const value = $(this).val();
+
+        data.entries[uid].useGroupScoring = value === 'null' ? null : value === 'true';
+        setOriginalDataValue(data, uid, 'extensions.use_group_scoring', data.entries[uid].useGroupScoring);
+        saveWorldInfo(name, data);
+    });
+    useGroupScoringSelect.val((entry.useGroupScoring === null || entry.useGroupScoring === undefined) ? 'null' : entry.useGroupScoring ? 'true' : 'false').trigger('input');
+
     // automation id
     const automationIdInput = template.find('input[name="automationId"]');
     automationIdInput.data('uid', entry.uid);
@@ -1886,9 +2006,11 @@ const newEntryTemplate = {
     depth: DEFAULT_DEPTH,
     group: '',
     groupOverride: false,
+    groupWeight: DEFAULT_WEIGHT,
     scanDepth: null,
     caseSensitive: null,
     matchWholeWords: null,
+    useGroupScoring: null,
     automationId: '',
     role: 0,
 };
@@ -2164,7 +2286,7 @@ export async function getSortedEntries() {
  * Performs a scan on the chat and returns the world info activated.
  * @param {string[]} chat The chat messages to scan.
  * @param {number} maxContext The maximum context size of the generation.
- * @typedef {{ worldInfoBefore: string, worldInfoAfter: string, WIDepthEntries: any[], allActivatedEntries: Set<any> }} WIActivated
+ * @typedef {{ worldInfoBefore: string, worldInfoAfter: string, EMEntries: any[], WIDepthEntries: any[], allActivatedEntries: Set<any> }} WIActivated
  * @returns {Promise<WIActivated>} The world info activated.
  */
 async function checkWorldInfo(chat, maxContext) {
@@ -2202,7 +2324,7 @@ async function checkWorldInfo(chat, maxContext) {
     const sortedEntries = await getSortedEntries();
 
     if (sortedEntries.length === 0) {
-        return { worldInfoBefore: '', worldInfoAfter: '', WIDepthEntries: [], allActivatedEntries: new Set() };
+        return { worldInfoBefore: '', worldInfoAfter: '', WIDepthEntries: [], EMEntries: [], allActivatedEntries: new Set() };
     }
 
     while (needsToScan) {
@@ -2332,13 +2454,13 @@ async function checkWorldInfo(chat, maxContext) {
         const textToScanTokens = await getTokenCountAsync(allActivatedText);
         const probabilityChecksBefore = failedProbabilityChecks.size;
 
-        filterByInclusionGroups(newEntries, allActivatedEntries);
+        filterByInclusionGroups(newEntries, allActivatedEntries, buffer);
 
         console.debug('-- PROBABILITY CHECKS BEGIN --');
         for (const entry of newEntries) {
             const rollValue = Math.random() * 100;
 
-            if (!entry.group && entry.useProbability && rollValue > entry.probability) {
+            if (entry.useProbability && rollValue > entry.probability) {
                 console.debug(`WI entry ${entry.uid} ${entry.key} failed probability check, skipping`);
                 failedProbabilityChecks.add(entry);
                 continue;
@@ -2401,33 +2523,48 @@ async function checkWorldInfo(chat, maxContext) {
     // Forward-sorted list of entries for joining
     const WIBeforeEntries = [];
     const WIAfterEntries = [];
+    const EMEntries = [];
     const ANTopEntries = [];
     const ANBottomEntries = [];
     const WIDepthEntries = [];
 
     // Appends from insertion order 999 to 1. Use unshift for this purpose
+    // TODO (kingbri): Change to use WI Anchor positioning instead of separate top/bottom arrays
     [...allActivatedEntries].sort(sortFn).forEach((entry) => {
+        const regexDepth = entry.position === world_info_position.atDepth ? (entry.depth ?? DEFAULT_DEPTH) : null;
+        const content = getRegexedString(entry.content, regex_placement.WORLD_INFO, { depth: regexDepth, isMarkdown: false, isPrompt: true });
+
         switch (entry.position) {
             case world_info_position.before:
-                WIBeforeEntries.unshift(substituteParams(entry.content));
+                WIBeforeEntries.unshift(substituteParams(content));
                 break;
             case world_info_position.after:
-                WIAfterEntries.unshift(substituteParams(entry.content));
+                WIAfterEntries.unshift(substituteParams(content));
+                break;
+            case world_info_position.EMTop:
+                EMEntries.unshift(
+                    { position: wi_anchor_position.before, content: content },
+                );
+                break;
+            case world_info_position.EMBottom:
+                EMEntries.unshift(
+                    { position: wi_anchor_position.after, content: content },
+                );
                 break;
             case world_info_position.ANTop:
-                ANTopEntries.unshift(entry.content);
+                ANTopEntries.unshift(content);
                 break;
             case world_info_position.ANBottom:
-                ANBottomEntries.unshift(entry.content);
+                ANBottomEntries.unshift(content);
                 break;
             case world_info_position.atDepth: {
                 const existingDepthIndex = WIDepthEntries.findIndex((e) => e.depth === (entry.depth ?? DEFAULT_DEPTH) && e.role === (entry.role ?? extension_prompt_roles.SYSTEM));
                 if (existingDepthIndex !== -1) {
-                    WIDepthEntries[existingDepthIndex].entries.unshift(entry.content);
+                    WIDepthEntries[existingDepthIndex].entries.unshift(content);
                 } else {
                     WIDepthEntries.push({
                         depth: entry.depth,
-                        entries: [entry.content],
+                        entries: [content],
                         role: entry.role ?? extension_prompt_roles.SYSTEM,
                     });
                 }
@@ -2449,15 +2586,53 @@ async function checkWorldInfo(chat, maxContext) {
 
     buffer.cleanExternalActivations();
 
-    return { worldInfoBefore, worldInfoAfter, WIDepthEntries, allActivatedEntries };
+    return { worldInfoBefore, worldInfoAfter, EMEntries, WIDepthEntries, allActivatedEntries };
+}
+
+/**
+ * Only leaves entries with the highest key matching score in each group.
+ * @param {Record<string, WIScanEntry[]>} groups The groups to filter
+ * @param {WorldInfoBuffer} buffer The buffer to use for scoring
+ * @param {(entry: WIScanEntry) => void} removeEntry The function to remove an entry
+ */
+function filterGroupsByScoring(groups, buffer, removeEntry) {
+    for (const [key, group] of Object.entries(groups)) {
+        // Group scoring is disabled both globally and for the group entries
+        if (!world_info_use_group_scoring && !group.some(x => x.useGroupScoring)) {
+            console.debug(`Skipping group scoring for group '${key}'`);
+            continue;
+        }
+
+        const scores = group.map(entry => buffer.getScore(entry));
+        const maxScore = Math.max(...scores);
+        console.debug(`Group '${key}' max score: ${maxScore}`);
+        //console.table(group.map((entry, i) => ({ uid: entry.uid, key: JSON.stringify(entry.key), score: scores[i] })));
+
+        for (let i = 0; i < group.length; i++) {
+            const isScored = group[i].useGroupScoring ?? world_info_use_group_scoring;
+
+            if (!isScored) {
+                continue;
+            }
+
+            if (scores[i] < maxScore) {
+                console.debug(`Removing score loser from inclusion group '${key}' entry '${group[i].uid}'`, group[i]);
+                removeEntry(group[i]);
+                group.splice(i, 1);
+                scores.splice(i, 1);
+                i--;
+            }
+        }
+    }
 }
 
 /**
  * Filters entries by inclusion groups.
  * @param {object[]} newEntries Entries activated on current recursion level
  * @param {Set<object>} allActivatedEntries Set of all activated entries
+ * @param {WorldInfoBuffer} buffer The buffer to use for scanning
  */
-function filterByInclusionGroups(newEntries, allActivatedEntries) {
+function filterByInclusionGroups(newEntries, allActivatedEntries, buffer) {
     console.debug('-- INCLUSION GROUP CHECKS BEGIN --');
     const grouped = newEntries.filter(x => x.group).reduce((acc, item) => {
         if (!acc[item.group]) {
@@ -2484,6 +2659,8 @@ function filterByInclusionGroups(newEntries, allActivatedEntries) {
         }
     }
 
+    filterGroupsByScoring(grouped, buffer, removeEntry);
+
     for (const [key, group] of Object.entries(grouped)) {
         console.debug(`Checking inclusion group '${key}' with ${group.length} entries`, group);
 
@@ -2507,14 +2684,14 @@ function filterByInclusionGroups(newEntries, allActivatedEntries) {
             continue;
         }
 
-        // Do weighted random using probability of entry as weight
-        const totalWeight = group.reduce((acc, item) => acc + item.probability, 0);
+        // Do weighted random using entry's weight
+        const totalWeight = group.reduce((acc, item) => acc + (item.groupWeight ?? DEFAULT_WEIGHT), 0);
         const rollValue = Math.random() * totalWeight;
         let currentWeight = 0;
         let winner = null;
 
         for (const entry of group) {
-            currentWeight += entry.probability;
+            currentWeight += (entry.groupWeight ?? DEFAULT_WEIGHT);
 
             if (rollValue <= currentWeight) {
                 console.debug(`Activated inclusion group '${key}' with roll winner entry '${entry.uid}'`, entry);
@@ -2558,9 +2735,11 @@ function convertAgnaiMemoryBook(inputObj) {
             useProbability: false,
             group: '',
             groupOverride: false,
+            groupWeight: DEFAULT_WEIGHT,
             scanDepth: null,
             caseSensitive: null,
             matchWholeWords: null,
+            useGroupScoring: null,
             automationId: '',
             role: extension_prompt_roles.SYSTEM,
         };
@@ -2594,9 +2773,11 @@ function convertRisuLorebook(inputObj) {
             useProbability: entry.activationPercent ?? false,
             group: '',
             groupOverride: false,
+            groupWeight: DEFAULT_WEIGHT,
             scanDepth: null,
             caseSensitive: null,
             matchWholeWords: null,
+            useGroupScoring: null,
             automationId: '',
             role: extension_prompt_roles.SYSTEM,
         };
@@ -2635,9 +2816,11 @@ function convertNovelLorebook(inputObj) {
             useProbability: false,
             group: '',
             groupOverride: false,
+            groupWeight: DEFAULT_WEIGHT,
             scanDepth: null,
             caseSensitive: null,
             matchWholeWords: null,
+            useGroupScoring: null,
             automationId: '',
             role: extension_prompt_roles.SYSTEM,
         };
@@ -2677,9 +2860,11 @@ function convertCharacterBook(characterBook) {
             selectiveLogic: entry.extensions?.selectiveLogic ?? world_info_logic.AND_ANY,
             group: entry.extensions?.group ?? '',
             groupOverride: entry.extensions?.group_override ?? false,
+            groupWeight: entry.extensions?.group_weight ?? DEFAULT_WEIGHT,
             scanDepth: entry.extensions?.scan_depth ?? null,
             caseSensitive: entry.extensions?.case_sensitive ?? null,
             matchWholeWords: entry.extensions?.match_whole_words ?? null,
+            useGroupScoring: entry.extensions?.use_group_scoring ?? null,
             automationId: entry.extensions?.automation_id ?? '',
             role: entry.extensions?.role ?? extension_prompt_roles.SYSTEM,
             vectorized: entry.extensions?.vectorized ?? false,
@@ -2974,6 +3159,10 @@ jQuery(() => {
     });
 
     $('#world_import_file').on('change', async function (e) {
+        if (!(e.target instanceof HTMLInputElement)) {
+            return;
+        }
+
         const file = e.target.files[0];
 
         await importWorldInfo(file);
@@ -3055,6 +3244,11 @@ jQuery(() => {
 
     $('#world_info_overflow_alert').on('change', function () {
         world_info_overflow_alert = !!$(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $('#world_info_use_group_scoring').on('change', function () {
+        world_info_use_group_scoring = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
 

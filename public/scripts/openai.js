@@ -174,6 +174,7 @@ export const chat_completion_sources = {
     CUSTOM: 'custom',
     COHERE: 'cohere',
     PERPLEXITY: 'perplexity',
+    GROQ: 'groq',
 };
 
 const character_names_behavior = {
@@ -241,6 +242,7 @@ const default_settings = {
     mistralai_model: 'mistral-medium-latest',
     cohere_model: 'command-r',
     perplexity_model: 'llama-3-70b-instruct',
+    groq_model: 'llama3-70b-8192',
     custom_model: '',
     custom_url: '',
     custom_include_body: '',
@@ -252,6 +254,7 @@ const default_settings = {
     openrouter_force_instruct: false,
     openrouter_group_models: false,
     openrouter_sort_models: 'alphabetically',
+    openrouter_providers: [],
     jailbreak_system: false,
     reverse_proxy: '',
     chat_completion_source: chat_completion_sources.OPENAI,
@@ -314,6 +317,7 @@ const oai_settings = {
     mistralai_model: 'mistral-medium-latest',
     cohere_model: 'command-r',
     perplexity_model: 'llama-3-70b-instruct',
+    groq_model: 'llama3-70b-8192',
     custom_model: '',
     custom_url: '',
     custom_include_body: '',
@@ -325,6 +329,7 @@ const oai_settings = {
     openrouter_force_instruct: false,
     openrouter_group_models: false,
     openrouter_sort_models: 'alphabetically',
+    openrouter_providers: [],
     jailbreak_system: false,
     reverse_proxy: '',
     chat_completion_source: chat_completion_sources.OPENAI,
@@ -1438,6 +1443,8 @@ function getChatCompletionModel() {
             return oai_settings.cohere_model;
         case chat_completion_sources.PERPLEXITY:
             return oai_settings.perplexity_model;
+        case chat_completion_sources.GROQ:
+            return oai_settings.groq_model;
         default:
             throw new Error(`Unknown chat completion source: ${oai_settings.chat_completion_source}`);
     }
@@ -1664,6 +1671,7 @@ async function sendOpenAIRequest(type, messages, signal) {
     const isCustom = oai_settings.chat_completion_source == chat_completion_sources.CUSTOM;
     const isCohere = oai_settings.chat_completion_source == chat_completion_sources.COHERE;
     const isPerplexity = oai_settings.chat_completion_source == chat_completion_sources.PERPLEXITY;
+    const isGroq = oai_settings.chat_completion_source == chat_completion_sources.GROQ;
     const isTextCompletion = (isOAI && textCompletionModels.includes(oai_settings.openai_model)) || (isOpenRouter && oai_settings.openrouter_force_instruct && power_user.instruct.enabled);
     const isQuiet = type === 'quiet';
     const isImpersonate = type === 'impersonate';
@@ -1764,6 +1772,7 @@ async function sendOpenAIRequest(type, messages, signal) {
         generate_data['repetition_penalty'] = Number(oai_settings.repetition_penalty_openai);
         generate_data['top_a'] = Number(oai_settings.top_a_openai);
         generate_data['use_fallback'] = oai_settings.openrouter_use_fallback;
+        generate_data['provider'] = oai_settings.openrouter_providers;
 
         if (isTextCompletion) {
             generate_data['stop'] = getStoppingStrings(isImpersonate, isContinue);
@@ -1819,6 +1828,14 @@ async function sendOpenAIRequest(type, messages, signal) {
 
         // YEAH BRO JUST USE OPENAI CLIENT BRO
         delete generate_data['stop'];
+    }
+
+    // https://console.groq.com/docs/openai
+    if (isGroq) {
+        delete generate_data.logprobs;
+        delete generate_data.logit_bias;
+        delete generate_data.top_logprobs;
+        delete generate_data.n;
     }
 
     if ((isOAI || isOpenRouter || isMistral || isCustom || isCohere) && oai_settings.seed >= 0) {
@@ -2688,6 +2705,7 @@ function loadOpenAISettings(data, settings) {
     oai_settings.mistralai_model = settings.mistralai_model ?? default_settings.mistralai_model;
     oai_settings.cohere_model = settings.cohere_model ?? default_settings.cohere_model;
     oai_settings.perplexity_model = settings.perplexity_model ?? default_settings.perplexity_model;
+    oai_settings.groq_model = settings.groq_model ?? default_settings.groq_model;
     oai_settings.custom_model = settings.custom_model ?? default_settings.custom_model;
     oai_settings.custom_url = settings.custom_url ?? default_settings.custom_url;
     oai_settings.custom_include_body = settings.custom_include_body ?? default_settings.custom_include_body;
@@ -2755,6 +2773,8 @@ function loadOpenAISettings(data, settings) {
     $(`#model_cohere_select option[value="${oai_settings.cohere_model}"`).attr('selected', true);
     $('#model_perplexity_select').val(oai_settings.perplexity_model);
     $(`#model_perplexity_select option[value="${oai_settings.perplexity_model}"`).attr('selected', true);
+    $('#model_groq_select').val(oai_settings.groq_model);
+    $(`#model_groq_select option[value="${oai_settings.groq_model}"`).attr('selected', true);
     $('#custom_model_id').val(oai_settings.custom_model);
     $('#custom_api_url_text').val(oai_settings.custom_url);
     $('#openai_max_context').val(oai_settings.openai_max_context);
@@ -2776,6 +2796,7 @@ function loadOpenAISettings(data, settings) {
     $('#openrouter_use_fallback').prop('checked', oai_settings.openrouter_use_fallback);
     $('#openrouter_force_instruct').prop('checked', oai_settings.openrouter_force_instruct);
     $('#openrouter_group_models').prop('checked', oai_settings.openrouter_group_models);
+    $('#openrouter_providers_chat').val(oai_settings.openrouter_providers).trigger('change');
     $('#squash_system_messages').prop('checked', oai_settings.squash_system_messages);
     $('#continue_prefill').prop('checked', oai_settings.continue_prefill);
     if (settings.impersonation_prompt !== undefined) oai_settings.impersonation_prompt = settings.impersonation_prompt;
@@ -2904,7 +2925,14 @@ async function getStatusOpen() {
         return resultCheckStatus();
     }
 
-    const noValidateSources = [chat_completion_sources.SCALE, chat_completion_sources.CLAUDE, chat_completion_sources.AI21, chat_completion_sources.MAKERSUITE, chat_completion_sources.PERPLEXITY];
+    const noValidateSources = [
+        chat_completion_sources.SCALE,
+        chat_completion_sources.CLAUDE,
+        chat_completion_sources.AI21,
+        chat_completion_sources.MAKERSUITE,
+        chat_completion_sources.PERPLEXITY,
+        chat_completion_sources.GROQ,
+    ];
     if (noValidateSources.includes(oai_settings.chat_completion_source)) {
         let status = 'Unable to verify key; press "Test Message" to validate.';
         setOnlineStatus(status);
@@ -2992,10 +3020,12 @@ async function saveOpenAIPreset(name, settings, triggerUi = true) {
         openrouter_force_instruct: settings.openrouter_force_instruct,
         openrouter_group_models: settings.openrouter_group_models,
         openrouter_sort_models: settings.openrouter_sort_models,
+        openrouter_providers: settings.openrouter_providers,
         ai21_model: settings.ai21_model,
         mistralai_model: settings.mistralai_model,
         cohere_model: settings.cohere_model,
         perplexity_model: settings.perplexity_model,
+        groq_model: settings.groq_model,
         custom_model: settings.custom_model,
         custom_url: settings.custom_url,
         custom_include_body: settings.custom_include_body,
@@ -3387,10 +3417,12 @@ function onSettingsPresetChange() {
         openrouter_force_instruct: ['#openrouter_force_instruct', 'openrouter_force_instruct', true],
         openrouter_group_models: ['#openrouter_group_models', 'openrouter_group_models', false],
         openrouter_sort_models: ['#openrouter_sort_models', 'openrouter_sort_models', false],
+        openrouter_providers: ['#openrouter_providers_chat', 'openrouter_providers', false],
         ai21_model: ['#model_ai21_select', 'ai21_model', false],
         mistralai_model: ['#model_mistralai_select', 'mistralai_model', false],
         cohere_model: ['#model_cohere_select', 'cohere_model', false],
         perplexity_model: ['#model_perplexity_select', 'perplexity_model', false],
+        groq_model: ['#model_groq_select', 'groq_model', false],
         custom_model: ['#custom_model_id', 'custom_model', false],
         custom_url: ['#custom_api_url_text', 'custom_url', false],
         custom_include_body: ['#custom_include_body', 'custom_include_body', false],
@@ -3470,6 +3502,7 @@ function onSettingsPresetChange() {
 
         $('#chat_completion_source').trigger('change');
         $('#openai_logit_bias_preset').trigger('change');
+        $('#openrouter_providers_chat').trigger('change');
 
         saveSettingsDebounced();
         eventSource.emit(event_types.OAI_PRESET_CHANGED_AFTER);
@@ -3617,6 +3650,11 @@ async function onModelChange() {
     if ($(this).is('#model_perplexity_select')) {
         console.log('Perplexity model changed to', value);
         oai_settings.perplexity_model = value;
+    }
+
+    if ($(this).is('#model_groq_select')) {
+        console.log('Groq model changed to', value);
+        oai_settings.groq_model = value;
     }
 
     if (value && $(this).is('#model_custom_select')) {
@@ -3772,6 +3810,12 @@ async function onModelChange() {
         if (oai_settings.max_context_unlocked) {
             $('#openai_max_context').attr('max', unlocked_max);
         }
+        else if (['llama-3-sonar-small-32k-chat', 'llama-3-sonar-large-32k-chat'].includes(oai_settings.perplexity_model)) {
+            $('#openai_max_context').attr('max', max_32k);
+        }
+        else if (['llama-3-sonar-small-32k-online', 'llama-3-sonar-large-32k-online'].includes(oai_settings.perplexity_model)) {
+            $('#openai_max_context').attr('max', 28000);
+        }
         else if (['sonar-small-chat', 'sonar-medium-chat', 'codellama-70b-instruct', 'mistral-7b-instruct', 'mixtral-8x7b-instruct', 'mixtral-8x22b-instruct'].includes(oai_settings.perplexity_model)) {
             $('#openai_max_context').attr('max', max_16k);
         }
@@ -3780,6 +3824,25 @@ async function onModelChange() {
         }
         else if (['sonar-small-online', 'sonar-medium-online'].includes(oai_settings.perplexity_model)) {
             $('#openai_max_context').attr('max', 12000);
+        }
+        else {
+            $('#openai_max_context').attr('max', max_4k);
+        }
+        oai_settings.openai_max_context = Math.min(Number($('#openai_max_context').attr('max')), oai_settings.openai_max_context);
+        $('#openai_max_context').val(oai_settings.openai_max_context).trigger('input');
+        oai_settings.temp_openai = Math.min(oai_max_temp, oai_settings.temp_openai);
+        $('#temp_openai').attr('max', oai_max_temp).val(oai_settings.temp_openai).trigger('input');
+    }
+
+    if (oai_settings.chat_completion_source == chat_completion_sources.GROQ) {
+        if (oai_settings.max_context_unlocked) {
+            $('#openai_max_context').attr('max', unlocked_max);
+        }
+        else if (['llama3-8b-8192', 'llama3-70b-8192', 'gemma-7b-it'].includes(oai_settings.groq_model)) {
+            $('#openai_max_context').attr('max', max_8k);
+        }
+        else if (['mixtral-8x7b-32768'].includes(oai_settings.groq_model)) {
+            $('#openai_max_context').attr('max', max_32k);
         }
         else {
             $('#openai_max_context').attr('max', max_4k);
@@ -4010,6 +4073,19 @@ async function onConnectButtonClick(e) {
         }
     }
 
+    if (oai_settings.chat_completion_source == chat_completion_sources.GROQ) {
+        const api_key_groq = String($('#api_key_groq').val()).trim();
+
+        if (api_key_groq.length) {
+            await writeSecret(SECRET_KEYS.GROQ, api_key_groq);
+        }
+
+        if (!secret_state[SECRET_KEYS.GROQ]) {
+            console.log('No secret key saved for Groq');
+            return;
+        }
+    }
+
     startStatusLoading();
     saveSettingsDebounced();
     await getStatusOpen();
@@ -4050,6 +4126,9 @@ function toggleChatCompletionForms() {
     }
     else if (oai_settings.chat_completion_source == chat_completion_sources.PERPLEXITY) {
         $('#model_perplexity_select').trigger('change');
+    }
+    else if (oai_settings.chat_completion_source == chat_completion_sources.GROQ) {
+        $('#model_groq_select').trigger('change');
     }
     else if (oai_settings.chat_completion_source == chat_completion_sources.CUSTOM) {
         $('#model_custom_select').trigger('change');
@@ -4707,6 +4786,19 @@ $(document).ready(async function () {
         });
     }
 
+    $('#openrouter_providers_chat').on('change', function () {
+        const selectedProviders = $(this).val();
+
+        // Not a multiple select?
+        if (!Array.isArray(selectedProviders)) {
+            return;
+        }
+
+        oai_settings.openrouter_providers = selectedProviders;
+
+        saveSettingsDebounced();
+    });
+
     $('#api_button_openai').on('click', onConnectButtonClick);
     $('#openai_reverse_proxy').on('input', onReverseProxyInput);
     $('#model_openai_select').on('change', onModelChange);
@@ -4721,6 +4813,7 @@ $(document).ready(async function () {
     $('#model_mistralai_select').on('change', onModelChange);
     $('#model_cohere_select').on('change', onModelChange);
     $('#model_perplexity_select').on('change', onModelChange);
+    $('#model_groq_select').on('change', onModelChange);
     $('#model_custom_select').on('change', onModelChange);
     $('#settings_preset_openai').on('change', onSettingsPresetChange);
     $('#new_oai_preset').on('click', onNewPresetClick);

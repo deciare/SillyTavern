@@ -423,7 +423,7 @@
                                         </span>
                                     </div>
                                 </div>
-                                <div class="range-block" data-source="openai,claude,windowai,openrouter,ai21,scale,makersuite,mistralai,custom,cohere,perplexity">
+                                <div class="range-block" data-source="openai,claude,windowai,openrouter,ai21,scale,makersuite,mistralai,custom,cohere,perplexity,groq">
                                     <div class="range-block-title" data-i18n="Temperature">
                                         Temperature
                                     </div>
@@ -436,7 +436,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,ai21,custom,cohere,perplexity">
+                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,ai21,custom,cohere,perplexity,groq">
                                     <div class="range-block-title" data-i18n="Frequency Penalty">
                                         Frequency Penalty
                                     </div>
@@ -449,7 +449,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,ai21,custom,cohere,perplexity">
+                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,ai21,custom,cohere,perplexity,groq">
                                     <div class="range-block-title" data-i18n="Presence Penalty">
                                         Presence Penalty
                                     </div>
@@ -488,7 +488,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div data-newbie-hidden class="range-block" data-source="openai,claude,openrouter,ai21,scale,makersuite,mistralai,custom,cohere,perplexity">
+                                <div data-newbie-hidden class="range-block" data-source="openai,claude,openrouter,ai21,scale,makersuite,mistralai,custom,cohere,perplexity,groq">
                                     <div class="range-block-title" data-i18n="Top-p">
                                         Top P
                                     </div>
@@ -724,7 +724,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,mistralai,custom,cohere">
+                                <div data-newbie-hidden class="range-block" data-source="openai,openrouter,mistralai,custom,cohere,groq">
                                     <div class="range-block-title justifyLeft" data-i18n="Seed">
                                         Seed
                                     </div>
@@ -1989,6 +1989,11 @@
                                         </option>
                                     </select>
                                 </div>
+                                <div>
+                                    <h4 data-i18n="Model Providers">Model Providers</h4>
+                                    <select id="openrouter_providers_text" class="openrouter_providers" multiple>
+                                    </select>
+                                </div>
                             </div>
                             <div data-tg-type="infermaticai" class="flex-container flexFlowColumn">
                                 <h4 data-i18n="InfermaticAI API Key">InfermaticAI API Key</h4>
@@ -2266,6 +2271,7 @@
                                 <option value="ai21">AI21</option>
                                 <option value="claude">Claude</option>
                                 <option value="cohere">Cohere</option>
+                                <option value="groq">Groq</option>
                                 <option value="makersuite">Google MakerSuite</option>
                                 <option value="mistralai">MistralAI</option>
                                 <option value="openrouter">OpenRouter</option>
@@ -2502,6 +2508,11 @@
                                     <option data-i18n="Connect to the API">-- Connect to the API --</option>
                                 </select>
                             </div>
+                            <div>
+                                <h4 data-i18n="Model Providers">Model Providers</h4>
+                                <select id="openrouter_providers_chat" class="openrouter_providers" multiple>
+                                </select>
+                            </div>
                             <div class="marginTopBot5">
                                 <div class="inline-drawer wide100p">
                                     <div class="inline-drawer-toggle inline-drawer-header">
@@ -2670,6 +2681,23 @@
                                 </select>
                             </div>
                         </form>
+                        <div id="groq_form" data-source="groq">
+                            <h4 data-i18n="Groq API Key">Groq API Key</h4>
+                            <div class="flex-container">
+                                <input id="api_key_groq" name="api_key_groq" class="text_pole flex1" maxlength="500" value="" type="text" autocomplete="off">
+                                <div title="Clear your API key" data-i18n="[title]Clear your API key" class="menu_button fa-solid fa-circle-xmark clear-api-key" data-key="api_key_groq"></div>
+                            </div>
+                            <div data-for="api_key_groq" class="neutral_warning">
+                                For privacy reasons, your API key will be hidden after you reload the page.
+                            </div>
+                            <h4 data-i18n="Groq Model">Groq Model</h4>
+                            <select id="model_groq_select">
+                                <option value="llama3-8b-8192">llama3-8b-8192</option>
+                                <option value="llama3-70b-8192">llama3-70b-8192</option>
+                                <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                                <option value="gemma-7b-it">gemma-7b-it</option>
+                            </select>
+                        </div>
                         <div id="perplexity_form" data-source="perplexity">
                             <h4 data-i18n="Perplexity API Key">Perplexity API Key</h4>
                             <div class="flex-container">
@@ -2682,6 +2710,10 @@
                             <h4 data-i18n="Perplexity Model">Perplexity Model</h4>
                             <select id="model_perplexity_select">
                                 <optgroup label="Perplexity Models">
+                                    <option value="llama-3-sonar-small-32k-chat">llama-3-sonar-small-32k-chat</option>
+                                    <option value="llama-3-sonar-small-32k-online">llama-3-sonar-small-32k-online</option>
+                                    <option value="llama-3-sonar-large-32k-chat">llama-3-sonar-large-32k-chat</option>
+                                    <option value="llama-3-sonar-large-32k-online">llama-3-sonar-large-32k-online</option>
                                     <option value="sonar-small-chat">sonar-small-chat</option>
                                     <option value="sonar-small-online">sonar-small-online</option>
                                     <option value="sonar-medium-chat">sonar-medium-chat</option>
@@ -3398,6 +3430,12 @@
                                             Match whole words
                                         </small>
                                     </label>
+                                    <label title="Only the entries with the most number of key matches will be selected for Inclusion Group filtering" data-i18n="[title]Only the entries with the most number of key matches will be selected for Inclusion Group filtering" class="checkbox_label flex1">
+                                        <input id="world_info_use_group_scoring" type="checkbox" />
+                                        <small data-i18n="Use Group Scoring" class="whitespacenowrap flex1">
+                                            Use Group Scoring
+                                        </small>
+                                    </label>
                                     <label title="Alert if your world info is greater than the allocated budget." data-i18n="[title]Alert if your world info is greater than the allocated budget." class="checkbox_label flex1">
                                         <input id="world_info_overflow_alert" type="checkbox" />
                                         <small data-i18n="Alert On Overflow" class="whitespacenowrap flex1">
@@ -3917,7 +3955,7 @@
                                         </div>
                                     </label>
                                     <div id="movingui-preset-save-button" title="Save changes to a new MovingUI preset file." data-i18n="[title]Save movingUI changes to a new file" class="menu_button margin0 fa-solid fa-save"></div>
-                                    <div data-newbie-hidden id="movingUIreset" title="Reset MovingUI panel sizes/locations." class="menu_button fa-solid fa-recycle margin0" data-i18n="Reset Panels"></div>
+                                    <div data-newbie-hidden id="movingUIreset" title="Reset MovingUI panel sizes/locations." class="menu_button fa-solid fa-recycle margin0" data-i18n="[title]Reset MovingUI panel sizes/locations."></div>
                                 </div>
                             </div>
                             <div data-newbie-hidden id="CustomCSS-block" class="flex-container flexFlowColumn">
@@ -5019,12 +5057,18 @@
                                 <div class="WIEnteryHeaderControls flex-container">
                                     <div name="PositionBlock" class="world_entry_form_control world_entry_form_radios wi-enter-footer-text">
                                         <label for="position" class="WIEntryHeaderTitleMobile" data-i18n="Position:">Position:</label>
-                                        <select name="position" class="text_pole widthNatural margin0" data-i18n="[title]T_Position" title="↑Char: Before Character Definitions&#13;↓Char: After Character Definitions&#13;↑AN: Before Author's Note&#13;↓AN: After Author's Note&#13;@D ⚙️: at Depth (System)&#13;@D 👤: at Depth (User)&#13;@D 🤖: at Depth (Assistant)">
+                                        <select name="position" class="text_pole widthNatural margin0" data-i18n="[title]T_Position" title="↑Char: Before Character Definitions&#13;↓Char: After Character Definitions&#13;↑EM: Before Example Messages&#13;↓EM: After Example Messages&#13;↑AN: Before Author's Note&#13;↓AN: After Author's Note&#13;@D ⚙️: at Depth (System)&#13;@D 👤: at Depth (User)&#13;@D 🤖: at Depth (Assistant)">
                                             <option value="0" data-role="" data-i18n="Before Char Defs">
                                                 ↑Char
                                             </option>
                                             <option value="1" data-role="" data-i18n="After Char Defs">
                                                 ↓Char
+                                            </option>
+                                            <option value="5" data-role="" data-i18n="Before EM">
+                                                ↑EM
+                                            </option>
+                                            <option value="6" data-role="" data-i18n="After EM">
+                                                ↓EM
                                             </option>
                                             <option value="2" data-role="" data-i18n="Before AN">
                                                 ↑AN
@@ -5115,6 +5159,14 @@
                                         <option value="false" data-i18n="No">No</option>
                                     </select>
                                 </div>
+                                <div class="world_entry_form_control flex1">
+                                    <small class="textAlignCenter" data-i18n="Use Group Scoring">Use Group Scoring</small>
+                                    <select name="useGroupScoring" class="text_pole widthNatural margin0">
+                                        <option value="null" data-i18n="Use global setting">Use global setting</option>
+                                        <option value="true" data-i18n="Yes">Yes</option>
+                                        <option value="false" data-i18n="No">No</option>
+                                    </select>
+                                </div>
                                 <div class="world_entry_form_control flex1" title="Can be used to automatically activate Quick Replies" data-i18n="[title]Can be used to automatically activate Quick Replies">
                                     <small class="textAlignCenter" data-i18n="Automation ID">Automation ID</small>
                                     <input class="text_pole margin0" name="automationId" type="text" placeholder="( None )" data-i18n="[placeholder]( None )">
@@ -5161,7 +5213,7 @@
                             </div>
                         </div>
                         <div class="flex-container wide100p flexGap10">
-                            <div class="flex1 flex-container flexFlowColumn flexNoGap">
+                            <div class="flex4 flex-container flexFlowColumn flexNoGap">
                                 <div class="flex-container justifySpaceBetween">
                                     <small for="characterFilter" data-i18n="Filter to Character(s)">
                                         Filter to Character(s)
@@ -5181,7 +5233,7 @@
                                     </select>
                                 </div>
                             </div>
-                            <div class="flex1 flex-container flexFlowColumn flexNoGap">
+                            <div class="flex3 flex-container flexFlowColumn flexNoGap">
                                 <div class="flex-container justifySpaceBetween">
                                     <small for="group" data-i18n="Inclusion Group">
                                         Inclusion Group
@@ -5201,6 +5253,16 @@
                                 </div>
                                 <div class="range-block-range">
                                     <input type="text" class="text_pole margin0" name="group" rows="1" data-i18n="[placeholder]Only one entry with the same label will be activated" placeholder="Only one entry with the same label will be activated">
+                                </div>
+                            </div>
+                            <div class="flex1 flex-container flexFlowColumn flexNoGap" data-i18n="[title]A relative likelihood of entry activation within the group" title="A relative likelihood of entry activation within the group">
+                                <div class="flex-container justifySpaceBetween marginBot5">
+                                    <small for="groupWeight" data-i18n="Group Weight">
+                                        Group Weight
+                                    </small>
+                                </div>
+                                <div class="range-block-range">
+                                    <input type="number" class="text_pole margin0" name="groupWeight" rows="1" placeholder="100" min="1" max="999999">
                                 </div>
                             </div>
                         </div>

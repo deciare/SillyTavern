@@ -15,6 +15,7 @@ const API_CLAUDE = 'https://api.anthropic.com/v1';
 const API_MISTRAL = 'https://api.mistral.ai/v1';
 const API_COHERE = 'https://api.cohere.ai/v1';
 const API_PERPLEXITY = 'https://api.perplexity.ai';
+const API_GROQ = 'https://api.groq.com/openai/v1';
 
 /**
  * Applies a post-processing step to the generated messages.
@@ -844,6 +845,13 @@ router.post('/generate', jsonParser, function (request, response) {
             bodyParams['repetition_penalty'] = request.body.repetition_penalty;
         }
 
+        if (Array.isArray(request.body.provider) && request.body.provider.length > 0) {
+            bodyParams['provider'] = {
+                allow_fallbacks: true,
+                order: request.body.provider ?? [],
+            };
+        }
+
         if (request.body.use_fallback) {
             bodyParams['route'] = 'fallback';
         }
@@ -879,6 +887,11 @@ router.post('/generate', jsonParser, function (request, response) {
         headers = {};
         bodyParams = {};
         request.body.messages = postProcessPrompt(request.body.messages, 'claude', request.body.char_name, request.body.user_name);
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.GROQ) {
+        apiUrl = API_GROQ;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.GROQ);
+        headers = {};
+        bodyParams = {};
     } else {
         console.log('This chat completion source is not supported yet.');
         return response.status(400).send({ error: true });

@@ -1067,7 +1067,7 @@ export function initRossMods() {
         }
 
 
-        if (event.ctrlKey && event.key == 'ArrowUp') { //edits last USER message if chatbar is empty and focused
+        if ((event.ctrlKey || event.metaKey) && event.key == 'ArrowUp') { //edits last USER message if chatbar is empty and focused
             if (
                 hotkeyTargets['send_textarea'].value === '' &&
                 chatbarInFocus === true &&

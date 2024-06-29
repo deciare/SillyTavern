@@ -169,7 +169,7 @@ const init = async () => {
     log('settings: ', settings);
 
     manager = new SettingsUi(settings);
-    document.querySelector('#extensions_settings2').append(await manager.render());
+    document.querySelector('#qr_container').append(await manager.render());
 
     buttons = new ButtonUi(settings);
     buttons.show();
@@ -183,14 +183,16 @@ const init = async () => {
             ;
         if (!qr) {
             let [setName, ...qrName] = name.split('.');
-            name = qrName.join('.');
+            qrName = qrName.join('.');
             let qrs = QuickReplySet.get(setName);
             if (qrs) {
-                qr = qrs.qrList.find(it=>it.label == name);
+                qr = qrs.qrList.find(it=>it.label == qrName);
             }
         }
         if (qr && qr.onExecute) {
-            return await qr.execute(args);
+            return await qr.execute(args, false, true);
+        } else {
+            throw new Error(`No Quick Reply found for "${name}".`);
         }
     };
 

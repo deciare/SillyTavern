@@ -1,4 +1,4 @@
-import { cancelTtsPlay, eventSource, event_types, isStreamingEnabled, name2, saveSettingsDebounced, substituteParams } from '../../../script.js';
+import { cancelTtsPlay, eventSource, event_types, getCurrentChatId, isStreamingEnabled, name2, saveSettingsDebounced, substituteParams } from '../../../script.js';
 import { ModuleWorkerWrapper, doExtrasFetch, extension_settings, getApiUrl, getContext, modules, renderExtensionTemplateAsync } from '../../extensions.js';
 import { delay, escapeRegex, getBase64Async, getStringHash, onlyUnique } from '../../utils.js';
 import { EdgeTtsProvider } from './edge.js';
@@ -10,6 +10,7 @@ import { NovelTtsProvider } from './novel.js';
 import { power_user } from '../../power-user.js';
 import { OpenAITtsProvider } from './openai.js';
 import { XTTSTtsProvider } from './xtts.js';
+import { VITSTtsProvider } from './vits.js';
 import { GSVITtsProvider } from './gsvi.js';
 import { SBVits2TtsProvider } from './sbvits2.js';
 import { AllTalkTtsProvider } from './alltalk.js';
@@ -34,6 +35,7 @@ let lastMessage = null;
 let lastMessageHash = null;
 let periodicMessageGenerationTimer = null;
 let lastPositionOfParagraphEnd = -1;
+let currentInitVoiceMapPromise = null;
 
 const DEFAULT_VOICE_MARKER = '[Default Voice]';
 const DISABLED_VOICE_MARKER = 'disabled';
@@ -83,6 +85,7 @@ const ttsProviders = {
     ElevenLabs: ElevenLabsTtsProvider,
     Silero: SileroTtsProvider,
     XTTSv2: XTTSTtsProvider,
+    VITS: VITSTtsProvider,
     GSVI: GSVITtsProvider,
     SBVits2: SBVits2TtsProvider,
     System: SystemTtsProvider,
@@ -345,13 +348,18 @@ function onAudioControlClicked() {
 }
 
 function addAudioControl() {
-
     $('#tts_wand_container').append(`
         <div id="ttsExtensionMenuItem" class="list-group-item flex-container flexGap5">
             <div id="tts_media_control" class="extensionsMenuExtensionButton "/></div>
             TTS Playback
         </div>`);
+    $('#tts_wand_container').append(`
+        <div id="ttsExtensionNarrateAll" class="list-group-item flex-container flexGap5">
+            <div class="extensionsMenuExtensionButton fa-solid fa-radio"></div>
+            Narrate All Chat
+        </div>`);
     $('#ttsExtensionMenuItem').attr('title', 'TTS play/pause').on('click', onAudioControlClicked);
+    $('#ttsExtensionNarrateAll').attr('title', 'Narrate all messages in the current chat. Includes user messages, excludes hidden comments.').on('click', playFullConversation);
     updateUiAudioPlayState();
 }
 
@@ -509,12 +517,23 @@ async function processTtsQueue() {
     }
 }
 
-// Secret function for now
 async function playFullConversation() {
+    resetTtsPlayback();
+
+    if (!extension_settings.tts.enabled) {
+        return toastr.warning('TTS is disabled. Please enable it in the extension settings.');
+    }
+
     const context = getContext();
-    const chat = context.chat;
+    const chat = context.chat.filter(x => !x.is_system && x.mes !== '...' && x.mes !== '');
+
+    if (chat.length === 0) {
+        return toastr.info('No messages to narrate.');
+    }
+
     ttsJobQueue = chat;
 }
+
 window['playFullConversation'] = playFullConversation;
 
 //#############################//
@@ -1008,9 +1027,39 @@ class VoiceMapEntry {
 
 /**
  * Init voiceMapEntries for character select list.
+ * If an initialization is already in progress, it returns the existing Promise instead of starting a new one.
  * @param {boolean} unrestricted - If true, will include all characters in voiceMapEntries, even if they are not in the current chat.
+ * @returns {Promise} A promise that resolves when the initialization is complete.
  */
 export async function initVoiceMap(unrestricted = false) {
+    // Preventing parallel execution
+    if (currentInitVoiceMapPromise) {
+        return currentInitVoiceMapPromise;
+    }
+
+    currentInitVoiceMapPromise = (async () => {
+        const initialChatId = getCurrentChatId();
+        try {
+            await initVoiceMapInternal(unrestricted);
+        } finally {
+            currentInitVoiceMapPromise = null;
+        }
+        const currentChatId = getCurrentChatId();
+
+        if (initialChatId !== currentChatId) {
+            // Chat changed during initialization, reinitialize
+            await initVoiceMap(unrestricted);
+        }
+    })();
+
+    return currentInitVoiceMapPromise;
+}
+
+/**
+ * Init voiceMapEntries for character select list.
+ * @param {boolean} unrestricted - If true, will include all characters in voiceMapEntries, even if they are not in the current chat.
+ */
+async function initVoiceMapInternal(unrestricted) {
     // Gate initialization if not enabled or TTS Provider not ready. Prevents error popups.
     const enabled = $('#tts_enabled').is(':checked');
     if (!enabled) {

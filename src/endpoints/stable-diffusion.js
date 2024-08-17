@@ -323,6 +323,17 @@ router.post('/generate', jsonParser, async (request, response) => {
         const url = new URL(request.body.url);
         url.pathname = '/sdapi/v1/txt2img';
 
+        const controller = new AbortController();
+        request.socket.removeAllListeners('close');
+        request.socket.on('close', function () {
+            if (!response.writableEnded) {
+                const url = new URL(request.body.url);
+                url.pathname = '/sdapi/v1/interrupt';
+                fetch(url, { method: 'POST', headers: { 'Authorization': getBasicAuthHeader(request.body.auth) } });
+            }
+            controller.abort();
+        });
+
         const result = await fetch(url, {
             method: 'POST',
             body: JSON.stringify(request.body),
@@ -331,6 +342,8 @@ router.post('/generate', jsonParser, async (request, response) => {
                 'Authorization': getBasicAuthHeader(request.body.auth),
             },
             timeout: 0,
+            // @ts-ignore
+            signal: controller.signal,
         });
 
         if (!result.ok) {
@@ -556,6 +569,17 @@ comfy.post('/generate', jsonParser, async (request, response) => {
         const url = new URL(request.body.url);
         url.pathname = '/prompt';
 
+        const controller = new AbortController();
+        request.socket.removeAllListeners('close');
+        request.socket.on('close', function () {
+            if (!response.writableEnded && !item) {
+                const interruptUrl = new URL(request.body.url);
+                interruptUrl.pathname = '/interrupt';
+                fetch(interruptUrl, { method: 'POST', headers: { 'Authorization': getBasicAuthHeader(request.body.auth) } });
+            }
+            controller.abort();
+        });
+
         const promptResult = await fetch(url, {
             method: 'POST',
             body: request.body.prompt,
@@ -581,6 +605,9 @@ comfy.post('/generate', jsonParser, async (request, response) => {
             }
             await delay(100);
         }
+        if (item.status.status_str === 'error') {
+            throw new Error('ComfyUI generation did not succeed.');
+        }
         const imgInfo = Object.keys(item.outputs).map(it => item.outputs[it].images).flat()[0];
         const imgUrl = new URL(request.body.url);
         imgUrl.pathname = '/view';
@@ -592,6 +619,7 @@ comfy.post('/generate', jsonParser, async (request, response) => {
         const imgBuffer = await imgResponse.buffer();
         return response.send(imgBuffer.toString('base64'));
     } catch (error) {
+        console.log(error);
         return response.sendStatus(500);
     }
 });
@@ -880,10 +908,94 @@ stability.post('/generate', jsonParser, async (request, response) => {
     }
 });
 
+const blockentropy = express.Router();
+
+blockentropy.post('/models', jsonParser, async (request, response) => {
+    try {
+        const key = readSecret(request.user.directories, SECRET_KEYS.BLOCKENTROPY);
+
+        if (!key) {
+            console.log('Block Entropy key not found.');
+            return response.sendStatus(400);
+        }
+
+        const modelsResponse = await fetch('https://api.blockentropy.ai/sdapi/v1/sd-models', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${key}`,
+            },
+        });
+
+        if (!modelsResponse.ok) {
+            console.log('Block Entropy returned an error.');
+            return response.sendStatus(500);
+        }
+
+        const data = await modelsResponse.json();
+
+        if (!Array.isArray(data)) {
+            console.log('Block Entropy returned invalid data.');
+            return response.sendStatus(500);
+        }
+        const models = data.map(x => ({ value: x.name, text: x.name }));
+        return response.send(models);
+
+    } catch (error) {
+        console.log(error);
+        return response.sendStatus(500);
+    }
+});
+
+blockentropy.post('/generate', jsonParser, async (request, response) => {
+    try {
+        const key = readSecret(request.user.directories, SECRET_KEYS.BLOCKENTROPY);
+
+        if (!key) {
+            console.log('Block Entropy key not found.');
+            return response.sendStatus(400);
+        }
+
+        console.log('Block Entropy request:', request.body);
+
+        const result = await fetch('https://api.blockentropy.ai/sdapi/v1/txt2img', {
+            method: 'POST',
+            body: JSON.stringify({
+                prompt: request.body.prompt,
+                negative_prompt: request.body.negative_prompt,
+                model: request.body.model,
+                steps: request.body.steps,
+                width: request.body.width,
+                height: request.body.height,
+                // Random seed if negative.
+                seed: request.body.seed >= 0 ? request.body.seed : Math.floor(Math.random() * 10_000_000),
+            }),
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${key}`,
+            },
+        });
+
+        if (!result.ok) {
+            console.log('Block Entropy returned an error.');
+            return response.sendStatus(500);
+        }
+
+        const data = await result.json();
+        console.log('Block Entropy response:', data);
+
+        return response.send(data);
+    } catch (error) {
+        console.log(error);
+        return response.sendStatus(500);
+    }
+});
+
+
 router.use('/comfy', comfy);
 router.use('/together', together);
 router.use('/drawthings', drawthings);
 router.use('/pollinations', pollinations);
 router.use('/stability', stability);
+router.use('/blockentropy', blockentropy);
 
 module.exports = { router };

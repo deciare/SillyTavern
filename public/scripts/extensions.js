@@ -605,35 +605,41 @@ function getModuleInformation() {
 async function showExtensionsDetails() {
     let popupPromise;
     try {
-        showLoader();
-        let htmlDefault = '<h3>Built-in Extensions:</h3>';
-        let htmlExternal = '<h3>Installed Extensions:</h3>';
+        const htmlDefault = $('<h3>Built-in Extensions:</h3>');
+        const htmlExternal = $('<h3>Installed Extensions:</h3>').addClass('opacity50p');
+        const htmlLoading = $(`<h3 class="flex-container alignItemsCenter justifyCenter marginTop10 marginBot5">
+            <i class="fa-solid fa-spinner fa-spin"></i>
+            <span>Loading third-party extensions... Please wait...</span>
+        </h3>`);
 
-        const extensions = Object.entries(manifests).sort((a, b) => a[1].loading_order - b[1].loading_order);
+        /** @type {Promise<any>[]} */
         const promises = [];
+        const extensions = Object.entries(manifests).sort((a, b) => a[1].loading_order - b[1].loading_order);
 
         for (const extension of extensions) {
             promises.push(getExtensionData(extension));
         }
 
-        const settledPromises = await Promise.allSettled(promises);
-
-        settledPromises.forEach(promise => {
-            if (promise.status === 'fulfilled') {
-                const { isExternal, extensionHtml } = promise.value;
-                if (isExternal) {
-                    htmlExternal += extensionHtml;
-                } else {
-                    htmlDefault += extensionHtml;
-                }
-            }
+        promises.forEach(promise => {
+            promise.then(value => {
+                const { isExternal, extensionHtml } = value;
+                const container = isExternal ? htmlExternal : htmlDefault;
+                container.append(extensionHtml);
+            });
         });
 
-        const html = `
-            ${getModuleInformation()}
-            ${htmlDefault}
-            ${htmlExternal}
-        `;
+        Promise.allSettled(promises).then(() => {
+            htmlLoading.remove();
+            htmlExternal.removeClass('opacity50p');
+        });
+
+        const html = $('<div></div>')
+            .addClass('extensions_info')
+            .append(getModuleInformation())
+            .append(htmlDefault)
+            .append(htmlLoading)
+            .append(htmlExternal);
+
         /** @type {import('./popup.js').CustomPopupButton} */
         const updateAllButton = {
             text: 'Update all',
@@ -651,13 +657,11 @@ async function showExtensionsDetails() {
             await oldPopup.complete(POPUP_RESULT.CANCELLED);
         }
 
-        const popup = new Popup(`<div class="extensions_info">${html}</div>`, POPUP_TYPE.TEXT, '', { okButton: 'Close', wide: true, large: true, customButtons: [updateAllButton], allowVerticalScrolling: true });
+        const popup = new Popup(html, POPUP_TYPE.TEXT, '', { okButton: 'Close', wide: true, large: true, customButtons: [updateAllButton], allowVerticalScrolling: true });
         popupPromise = popup.show();
     } catch (error) {
         toastr.error('Error loading extensions. See browser console for details.');
         console.error(error);
-    } finally {
-        hideLoader();
     }
     if (popupPromise) {
         await popupPromise;
@@ -985,6 +989,28 @@ export async function writeExtensionField(characterId, key, value) {
     }
 }
 
+/**
+ * Prompts the user to enter the Git URL of the extension to import.
+ * After obtaining the Git URL, makes a POST request to '/api/extensions/install' to import the extension.
+ * If the extension is imported successfully, a success message is displayed.
+ * If the extension import fails, an error message is displayed and the error is logged to the console.
+ * After successfully importing the extension, the extension settings are reloaded and a 'EXTENSION_SETTINGS_LOADED' event is emitted.
+ * @param {string} [suggestUrl] Suggested URL to install
+ * @returns {Promise<void>}
+ */
+export async function openThirdPartyExtensionMenu(suggestUrl = '') {
+    const html = await renderTemplateAsync('installExtension');
+    const input = await callGenericPopup(html, POPUP_TYPE.INPUT, suggestUrl ?? '');
+
+    if (!input) {
+        console.debug('Extension install cancelled');
+        return;
+    }
+
+    const url = String(input).trim();
+    await installExtension(url);
+}
+
 jQuery(async function () {
     await addExtensionsButtonAndMenu();
     $('#extensionsMenuButton').css('display', 'flex');
@@ -1000,28 +1026,8 @@ jQuery(async function () {
 
     /**
      * Handles the click event for the third-party extension import button.
-     * Prompts the user to enter the Git URL of the extension to import.
-     * After obtaining the Git URL, makes a POST request to '/api/extensions/install' to import the extension.
-     * If the extension is imported successfully, a success message is displayed.
-     * If the extension import fails, an error message is displayed and the error is logged to the console.
-     * After successfully importing the extension, the extension settings are reloaded and a 'EXTENSION_SETTINGS_LOADED' event is emitted.
      *
      * @listens #third_party_extension_button#click - The click event of the '#third_party_extension_button' element.
      */
-    $('#third_party_extension_button').on('click', async () => {
-        const html = `<h3>Enter the Git URL of the extension to install</h3>
-    <br>
-    <p><b>Disclaimer:</b> Please be aware that using external extensions can have unintended side effects and may pose security risks. Always make sure you trust the source before importing an extension. We are not responsible for any damage caused by third-party extensions.</p>
-    <br>
-    <p>Example: <tt> https://github.com/author/extension-name </tt></p>`;
-        const input = await callGenericPopup(html, POPUP_TYPE.INPUT, '');
-
-        if (!input) {
-            console.debug('Extension install cancelled');
-            return;
-        }
-
-        const url = String(input).trim();
-        await installExtension(url);
-    });
+    $('#third_party_extension_button').on('click', () => openThirdPartyExtensionMenu());
 });

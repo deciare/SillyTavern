@@ -333,6 +333,7 @@ class PresetManager {
             'featherless_model',
             'max_tokens_second',
             'openrouter_providers',
+            'openrouter_allow_fallbacks',
         ];
         const settings = Object.assign({}, getSettingsByApiId(this.apiId));
 

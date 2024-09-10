@@ -1,4 +1,4 @@
-import { getStringHash, debounce, waitUntilCondition, extractAllWords } from '../../utils.js';
+import { getStringHash, debounce, waitUntilCondition, extractAllWords, isTrueBoolean } from '../../utils.js';
 import { getContext, getApiUrl, extension_settings, doExtrasFetch, modules, renderExtensionTemplateAsync } from '../../extensions.js';
 import {
     activateSendButtons,
@@ -15,6 +15,7 @@ import {
     generateRaw,
     getMaxContextSize,
     setExtensionPrompt,
+    streamingProcessor,
 } from '../../../script.js';
 import { is_group_generating, selected_group } from '../../group-chats.js';
 import { loadMovingUIState } from '../../power-user.js';
@@ -26,6 +27,7 @@ import { SlashCommand } from '../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../slash-commands/SlashCommandArgument.js';
 import { MacrosParser } from '../../macros.js';
 import { countWebLlmTokens, generateWebLlmChatPrompt, getWebLlmContextSize, isWebLlmSupported } from '../shared.js';
+import { commonEnumProviders } from '../../slash-commands/SlashCommandCommonEnumsProvider.js';
 export { MODULE_NAME };
 
 const MODULE_NAME = '1_memory';
@@ -407,8 +409,8 @@ async function onChatEvent() {
         return;
     }
 
-    // Generation is in progress, summary prevented
-    if (is_send_press) {
+    // Streaming in-progress
+    if (streamingProcessor && !streamingProcessor.isFinished) {
         return;
     }
 
@@ -445,18 +447,17 @@ async function onChatEvent() {
         delete chat[chat.length - 1].extra.memory;
     }
 
-    try {
-        await summarizeChat(context);
-    }
-    catch (error) {
-        console.log(error);
-    }
-    finally {
-        saveLastValues();
-    }
+    summarizeChat(context)
+        .catch(console.error)
+        .finally(saveLastValues);
 }
 
-async function forceSummarizeChat() {
+/**
+ * Forces a summary generation for the current chat.
+ * @param {boolean} quiet If an informational toast should be displayed
+ * @returns {Promise<string>} Summarized text
+ */
+async function forceSummarizeChat(quiet) {
     if (extension_settings.memory.source === summary_sources.extras) {
         toastr.warning('Force summarization is not supported for Extras API');
         return;
@@ -471,7 +472,7 @@ async function forceSummarizeChat() {
         return '';
     }
 
-    const toast = toastr.info('Summarizing chat...', 'Please wait', { timeOut: 0, extendedTimeOut: 0 });
+    const toast = quiet ? jQuery() : toastr.info('Summarizing chat...', 'Please wait', { timeOut: 0, extendedTimeOut: 0 });
     const value = extension_settings.memory.source === summary_sources.main
         ? await summarizeChatMain(context, true, skipWIAN)
         : await summarizeChatWebLLM(context, true);
@@ -494,9 +495,10 @@ async function forceSummarizeChat() {
 async function summarizeCallback(args, text) {
     text = text.trim();
 
-    // Using forceSummarizeChat to summarize the current chat
+    // Summarize the current chat if no text provided
     if (!text) {
-        return await forceSummarizeChat();
+        const quiet = isTrueBoolean(args.quiet);
+        return await forceSummarizeChat(quiet);
     }
 
     const source = args.source || extension_settings.memory.source;
@@ -560,7 +562,7 @@ async function getSummaryPromptForNow(context, force) {
             await waitUntilCondition(() => is_group_generating === false, 1000, 10);
         }
         // Wait for the send button to be released
-        waitUntilCondition(() => is_send_press === false, 30000, 100);
+        await waitUntilCondition(() => is_send_press === false, 30000, 100);
     } catch {
         console.debug('Timeout waiting for is_send_press');
         return '';
@@ -643,19 +645,29 @@ async function summarizeChatWebLLM(context, force) {
         params.max_tokens = extension_settings.memory.overrideResponseLength;
     }
 
-    const summary = await generateWebLlmChatPrompt(messages, params);
-    const newContext = getContext();
+    try {
+        inApiCall = true;
+        const summary = await generateWebLlmChatPrompt(messages, params);
+        const newContext = getContext();
 
-    // something changed during summarization request
-    if (newContext.groupId !== context.groupId ||
-        newContext.chatId !== context.chatId ||
-        (!newContext.groupId && (newContext.characterId !== context.characterId))) {
-        console.log('Context changed, summary discarded');
-        return;
+        if (!summary) {
+            console.warn('Empty summary received');
+            return;
+        }
+
+        // something changed during summarization request
+        if (newContext.groupId !== context.groupId ||
+            newContext.chatId !== context.chatId ||
+            (!newContext.groupId && (newContext.characterId !== context.characterId))) {
+            console.log('Context changed, summary discarded');
+            return;
+        }
+
+        setMemoryContext(summary, true, lastUsedIndex);
+        return summary;
+    } finally {
+        inApiCall = false;
     }
-
-    setMemoryContext(summary, true, lastUsedIndex);
-    return summary;
 }
 
 async function summarizeChatMain(context, force, skipWIAN) {
@@ -670,12 +682,18 @@ async function summarizeChatMain(context, force, skipWIAN) {
     let index = null;
 
     if (prompt_builders.DEFAULT === extension_settings.memory.prompt_builder) {
-        summary = await generateQuietPrompt(prompt, false, skipWIAN, '', '', extension_settings.memory.overrideResponseLength);
+        try {
+            inApiCall = true;
+            summary = await generateQuietPrompt(prompt, false, skipWIAN, '', '', extension_settings.memory.overrideResponseLength);
+        } finally {
+            inApiCall = false;
+        }
     }
 
     if ([prompt_builders.RAW_BLOCKING, prompt_builders.RAW_NON_BLOCKING].includes(extension_settings.memory.prompt_builder)) {
         const lock = extension_settings.memory.prompt_builder === prompt_builders.RAW_BLOCKING;
         try {
+            inApiCall = true;
             if (lock) {
                 deactivateSendButtons();
             }
@@ -693,10 +711,16 @@ async function summarizeChatMain(context, force, skipWIAN) {
             summary = await generateRaw(rawPrompt, '', false, false, prompt, extension_settings.memory.overrideResponseLength);
             index = lastUsedIndex;
         } finally {
+            inApiCall = false;
             if (lock) {
                 activateSendButtons();
             }
         }
+    }
+
+    if (!summary) {
+        console.warn('Empty summary received');
+        return;
     }
 
     const newContext = getContext();
@@ -832,6 +856,11 @@ async function summarizeChatExtras(context) {
         inApiCall = true;
         const summary = await callExtrasSummarizeAPI(resultingString);
         const newContext = getContext();
+
+        if (!summary) {
+            console.warn('Empty summary received');
+            return;
+        }
 
         // something changed during summarization request
         if (newContext.groupId !== context.groupId
@@ -1005,7 +1034,7 @@ function setupListeners() {
     $('#memory_prompt_words').off('click').on('input', onMemoryPromptWordsInput);
     $('#memory_prompt_interval').off('click').on('input', onMemoryPromptIntervalInput);
     $('#memory_prompt').off('click').on('input', onMemoryPromptInput);
-    $('#memory_force_summarize').off('click').on('click', forceSummarizeChat);
+    $('#memory_force_summarize').off('click').on('click', () => forceSummarizeChat(false));
     $('#memory_template').off('click').on('input', onMemoryTemplateInput);
     $('#memory_depth').off('click').on('input', onMemoryDepthInput);
     $('#memory_role').off('click').on('input', onMemoryRoleInput);
@@ -1054,6 +1083,13 @@ jQuery(async function () {
                 description: 'prompt to use for summarization',
                 typeList: [ARGUMENT_TYPE.STRING],
                 defaultValue: '',
+            }),
+            SlashCommandNamedArgument.fromProps({
+                name: 'quiet',
+                description: 'suppress the toast message when summarizing the chat',
+                typeList: [ARGUMENT_TYPE.BOOLEAN],
+                defaultValue: 'false',
+                enumList: commonEnumProviders.boolean('trueFalse')(),
             }),
         ],
         unnamedArgumentList: [

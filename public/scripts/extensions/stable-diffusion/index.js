@@ -52,6 +52,7 @@ const sources = {
     pollinations: 'pollinations',
     stability: 'stability',
     blockentropy: 'blockentropy',
+    huggingface: 'huggingface',
 };
 
 const initiators = {
@@ -454,6 +455,7 @@ async function loadSettings() {
     $('#sd_command_visible').prop('checked', extension_settings.sd.command_visible);
     $('#sd_interactive_visible').prop('checked', extension_settings.sd.interactive_visible);
     $('#sd_stability_style_preset').val(extension_settings.sd.stability_style_preset);
+    $('#sd_huggingface_model_id').val(extension_settings.sd.huggingface_model_id);
 
     for (const style of extension_settings.sd.styles) {
         const option = document.createElement('option');
@@ -722,7 +724,7 @@ function onChatChanged() {
 }
 
 async function adjustElementScrollHeight() {
-    if (!$('.sd_settings').is(':visible')) {
+    if (CSS.supports('field-sizing', 'content') || !$('.sd_settings').is(':visible')) {
         return;
     }
 
@@ -735,17 +737,19 @@ async function adjustElementScrollHeight() {
 async function onCharacterPromptInput() {
     const key = getCharaFilename(this_chid);
     extension_settings.sd.character_prompts[key] = $('#sd_character_prompt').val();
-    await resetScrollHeight($(this));
     saveSettingsDebounced();
     writePromptFieldsDebounced(this_chid);
+    if (CSS.supports('field-sizing', 'content')) return;
+    await resetScrollHeight($(this));
 }
 
 async function onCharacterNegativePromptInput() {
     const key = getCharaFilename(this_chid);
     extension_settings.sd.character_negative_prompts[key] = $('#sd_character_negative_prompt').val();
-    await resetScrollHeight($(this));
     saveSettingsDebounced();
     writePromptFieldsDebounced(this_chid);
+    if (CSS.supports('field-sizing', 'content')) return;
+    await resetScrollHeight($(this));
 }
 
 function getCharacterPrefix() {
@@ -854,14 +858,16 @@ function onStepsInput() {
 
 async function onPromptPrefixInput() {
     extension_settings.sd.prompt_prefix = $('#sd_prompt_prefix').val();
-    await resetScrollHeight($(this));
     saveSettingsDebounced();
+    if (CSS.supports('field-sizing', 'content')) return;
+    await resetScrollHeight($(this));
 }
 
 async function onNegativePromptInput() {
     extension_settings.sd.negative_prompt = $('#sd_negative_prompt').val();
-    await resetScrollHeight($(this));
     saveSettingsDebounced();
+    if (CSS.supports('field-sizing', 'content')) return;
+    await resetScrollHeight($(this));
 }
 
 function onSamplerChange() {
@@ -1091,6 +1097,11 @@ function onComfyUrlInput() {
     saveSettingsDebounced();
 }
 
+function onHFModelInput() {
+    extension_settings.sd.huggingface_model_id = $('#sd_huggingface_model_id').val();
+    saveSettingsDebounced();
+}
+
 function onComfyWorkflowChange() {
     extension_settings.sd.comfy_workflow = $('#sd_comfy_workflow').find(':selected').val();
     saveSettingsDebounced();
@@ -1235,7 +1246,16 @@ async function onModelChange() {
     extension_settings.sd.model = $('#sd_model').find(':selected').val();
     saveSettingsDebounced();
 
-    const cloudSources = [sources.horde, sources.novel, sources.openai, sources.togetherai, sources.pollinations, sources.stability, sources.blockentropy];
+    const cloudSources = [
+        sources.horde,
+        sources.novel,
+        sources.openai,
+        sources.togetherai,
+        sources.pollinations,
+        sources.stability,
+        sources.blockentropy,
+        sources.huggingface,
+    ];
 
     if (cloudSources.includes(extension_settings.sd.source)) {
         return;
@@ -1450,6 +1470,9 @@ async function loadSamplers() {
         case sources.blockentropy:
             samplers = ['N/A'];
             break;
+        case sources.huggingface:
+            samplers = ['N/A'];
+            break;
     }
 
     for (const sampler of samplers) {
@@ -1639,6 +1662,9 @@ async function loadModels() {
         case sources.blockentropy:
             models = await loadBlockEntropyModels();
             break;
+        case sources.huggingface:
+            models = [{ value: '', text: '<Enter Model ID above>' }];
+            break;
     }
 
     for (const model of models) {
@@ -1670,6 +1696,18 @@ async function loadPollinationsModels() {
         {
             value: 'flux',
             text: 'FLUX.1 [schnell]',
+        },
+        {
+            value: 'flux-realism',
+            text: 'FLUX Realism',
+        },
+        {
+            value: 'flux-anime',
+            text: 'FLUX Anime',
+        },
+        {
+            value: 'flux-3d',
+            text: 'FLUX 3D',
         },
         {
             value: 'turbo',
@@ -1986,6 +2024,9 @@ async function loadSchedulers() {
         case sources.blockentropy:
             schedulers = ['N/A'];
             break;
+        case sources.huggingface:
+            schedulers = ['N/A'];
+            break;
     }
 
     for (const scheduler of schedulers) {
@@ -2063,6 +2104,9 @@ async function loadVaes() {
             vaes = ['N/A'];
             break;
         case sources.blockentropy:
+            vaes = ['N/A'];
+            break;
+        case sources.huggingface:
             vaes = ['N/A'];
             break;
     }
@@ -2595,6 +2639,9 @@ async function sendGenerationRequest(generationType, prompt, additionalNegativeP
                 break;
             case sources.blockentropy:
                 result = await generateBlockEntropyImage(prefixedPrompt, negativePrompt, signal);
+                break;
+            case sources.huggingface:
+                result = await generateHuggingFaceImage(prefixedPrompt, signal);
                 break;
         }
 
@@ -3229,6 +3276,34 @@ async function generateComfyImage(prompt, negativePrompt, signal) {
     return { format: 'png', data: await promptResult.text() };
 }
 
+
+/**
+ * Generates an image in Hugging Face Inference API using the provided prompt and configuration settings (model selected).
+ * @param {string} prompt - The main instruction used to guide the image generation.
+ * @param {AbortSignal} signal - An AbortSignal object that can be used to cancel the request.
+ * @returns {Promise<{format: string, data: string}>} - A promise that resolves when the image generation and processing are complete.
+ */
+async function generateHuggingFaceImage(prompt, signal) {
+    const result = await fetch('/api/sd/huggingface/generate', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        signal: signal,
+        body: JSON.stringify({
+            model: extension_settings.sd.huggingface_model_id,
+            prompt: prompt,
+        }),
+    });
+
+    if (result.ok) {
+        const data = await result.json();
+        return { format: 'jpg', data: data.image };
+    } else {
+        const text = await result.text();
+        throw new Error(text);
+    }
+}
+
+
 async function onComfyOpenWorkflowEditorClick() {
     let workflow = await (await fetch('/api/sd/comfy/workflow', {
         method: 'POST',
@@ -3508,6 +3583,8 @@ function isValidState() {
             return secret_state[SECRET_KEYS.STABILITY];
         case sources.blockentropy:
             return secret_state[SECRET_KEYS.BLOCKENTROPY];
+        case sources.huggingface:
+            return secret_state[SECRET_KEYS.HUGGINGFACE];
     }
 }
 
@@ -3691,7 +3768,7 @@ async function onImageSwiped({ message, element, direction }) {
             const generationType = message?.extra?.generationType ?? generationMode.FREE;
             const dimensions = setTypeSpecificDimensions(generationType);
             const originalSeed = extension_settings.sd.seed;
-            extension_settings.sd.seed = Math.round(Math.random() * Number.MAX_SAFE_INTEGER);
+            extension_settings.sd.seed = Math.round(Math.random() * (Math.pow(2, 32) - 1));
             let imagePath = '';
 
             try {
@@ -3848,13 +3925,16 @@ jQuery(async () => {
     $('#sd_swap_dimensions').on('click', onSwapDimensionsClick);
     $('#sd_stability_key').on('click', onStabilityKeyClick);
     $('#sd_stability_style_preset').on('change', onStabilityStylePresetChange);
+    $('#sd_huggingface_model_id').on('input', onHFModelInput);
 
-    $('.sd_settings .inline-drawer-toggle').on('click', function () {
-        initScrollHeight($('#sd_prompt_prefix'));
-        initScrollHeight($('#sd_negative_prompt'));
-        initScrollHeight($('#sd_character_prompt'));
-        initScrollHeight($('#sd_character_negative_prompt'));
-    });
+    if (!CSS.supports('field-sizing', 'content')) {
+        $('.sd_settings .inline-drawer-toggle').on('click', function () {
+            initScrollHeight($('#sd_prompt_prefix'));
+            initScrollHeight($('#sd_negative_prompt'));
+            initScrollHeight($('#sd_character_prompt'));
+            initScrollHeight($('#sd_character_negative_prompt'));
+        });
+    }
 
     for (const [key, value] of Object.entries(resolutionOptions)) {
         const option = document.createElement('option');

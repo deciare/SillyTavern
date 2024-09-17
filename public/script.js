@@ -117,9 +117,9 @@ import {
 } from './scripts/nai-settings.js';
 
 import {
-    createNewBookmark,
+    initBookmarks,
     showBookmarksButtons,
-    createBranch,
+    updateBookmarkDisplay,
 } from './scripts/bookmarks.js';
 
 import {
@@ -225,7 +225,7 @@ import { getBackgrounds, initBackgrounds, loadBackgroundSettings, background_set
 import { hideLoader, showLoader } from './scripts/loader.js';
 import { BulkEditOverlay, CharacterContextMenu } from './scripts/BulkEditOverlay.js';
 import { loadFeatherlessModels, loadMancerModels, loadOllamaModels, loadTogetherAIModels, loadInfermaticAIModels, loadOpenRouterModels, loadVllmModels, loadAphroditeModels, loadDreamGenModels, initTextGenModels, loadTabbyModels } from './scripts/textgen-models.js';
-import { appendFileContent, hasPendingFileAttachment, populateFileAttachment, decodeStyleTags, encodeStyleTags, isExternalMediaAllowed, getCurrentEntityId } from './scripts/chats.js';
+import { appendFileContent, hasPendingFileAttachment, populateFileAttachment, decodeStyleTags, encodeStyleTags, isExternalMediaAllowed, getCurrentEntityId, preserveNeutralChat, restoreNeutralChat } from './scripts/chats.js';
 import { initPresetManager } from './scripts/preset-manager.js';
 import { MacrosParser, evaluateMacros, getLastMessageId } from './scripts/macros.js';
 import { currentUser, setUserControls } from './scripts/user.js';
@@ -242,6 +242,7 @@ import { INTERACTABLE_CONTROL_CLASS, initKeyboard } from './scripts/keyboard.js'
 import { initDynamicStyles } from './scripts/dynamic-styles.js';
 import { SlashCommandEnumValue, enumTypes } from './scripts/slash-commands/SlashCommandEnumValue.js';
 import { commonEnumProviders, enumIcons } from './scripts/slash-commands/SlashCommandCommonEnumsProvider.js';
+import { initInputMarkdown } from './scripts/input-md-formatting.js';
 import { AbortReason } from './scripts/util/AbortReason.js';
 
 //exporting functions and vars for mods
@@ -558,8 +559,6 @@ export const system_message_types = {
     GROUP: 'group',
     EMPTY: 'empty',
     GENERIC: 'generic',
-    BOOKMARK_CREATED: 'bookmark_created',
-    BOOKMARK_BACK: 'bookmark_back',
     NARRATOR: 'narrator',
     COMMENT: 'comment',
     SLASH_COMMANDS: 'slash_commands',
@@ -670,20 +669,6 @@ async function getSystemMessages() {
             is_user: false,
             is_system: true,
             mes: 'Generic system message. User `text` parameter to override the contents',
-        },
-        bookmark_created: {
-            name: systemUserName,
-            force_avatar: system_avatar,
-            is_user: false,
-            is_system: true,
-            mes: 'Checkpoint created! Click here to open the checkpoint chat: <a class="bookmark_link" file_name="{0}" href="javascript:void(null);">{1}</a>',
-        },
-        bookmark_back: {
-            name: systemUserName,
-            force_avatar: system_avatar,
-            is_user: false,
-            is_system: true,
-            mes: 'Click here to return to the previous chat: <a class="bookmark_link" file_name="{0}" href="javascript:void(null);">Return</a>',
         },
         welcome_prompt: {
             name: systemUserName,
@@ -881,7 +866,6 @@ let abortController;
 
 //css
 var css_send_form_display = $('<div id=send_form></div>').css('display');
-const MAX_GENERATION_LOOPS = 5;
 
 var kobold_horde_model = '';
 
@@ -955,6 +939,7 @@ async function firstLoadInit() {
     initDynamicStyles();
     initTags();
     initOpenai();
+    initBookmarks();
     await getUserAvatars(true, user_avatar);
     await getCharacters();
     await getBackgrounds();
@@ -967,6 +952,7 @@ async function firstLoadInit() {
     initStats();
     initCfg();
     initLogprobs();
+    initInputMarkdown();
     doDailyExtensionUpdatesCheck();
     await hideLoader();
     await fixViewport();
@@ -1180,7 +1166,7 @@ async function getStatusTextgen() {
             body: JSON.stringify({
                 api_server: endpoint,
                 api_type: textgen_settings.type,
-                legacy_api: textgen_settings.legacy_api && (textgen_settings.type === OOBA || textgen_settings.type === APHRODITE),
+                legacy_api: textgen_settings.legacy_api && textgen_settings.type === OOBA,
             }),
             signal: abortStatusCheck.signal,
         });
@@ -1860,6 +1846,7 @@ export async function deleteLastMessage() {
 }
 
 export async function reloadCurrentChat() {
+    preserveNeutralChat();
     await clearChat();
     chat.length = 0;
 
@@ -1871,6 +1858,7 @@ export async function reloadCurrentChat() {
     }
     else {
         resetChatState();
+        restoreNeutralChat();
         await getCharacters();
         await printMessages();
         await eventSource.emit(event_types.CHAT_CHANGED, getCurrentChatId());
@@ -2129,6 +2117,7 @@ function getMessageFromTemplate({
     tokenCount && mes.find('.tokenCounterDisplay').text(`${tokenCount}t`);
     title && mes.attr('title', title);
     timerValue && mes.find('.mes_timer').attr('title', timerTitle).text(timerValue);
+    bookmarkLink && updateBookmarkDisplay(mes);
 
     if (power_user.timestamp_model_icon && extra?.api) {
         insertSVGIcon(mes, extra);
@@ -2862,7 +2851,12 @@ export function getCharacterCardFields() {
 
 export function isStreamingEnabled() {
     const noStreamSources = [chat_completion_sources.SCALE];
-    return ((main_api == 'openai' && oai_settings.stream_openai && !noStreamSources.includes(oai_settings.chat_completion_source) && !(oai_settings.chat_completion_source == chat_completion_sources.MAKERSUITE && oai_settings.google_model.includes('bison')))
+    return (
+        (main_api == 'openai' &&
+            oai_settings.stream_openai &&
+            !noStreamSources.includes(oai_settings.chat_completion_source) &&
+            !(oai_settings.chat_completion_source == chat_completion_sources.OPENAI && oai_settings.openai_model.startsWith('o1-')) &&
+            !(oai_settings.chat_completion_source == chat_completion_sources.MAKERSUITE && oai_settings.google_model.includes('bison')))
         || (main_api == 'kobold' && kai_settings.streaming_kobold && kai_flags.can_use_streaming)
         || (main_api == 'novel' && nai_settings.streaming_novel)
         || (main_api == 'textgenerationwebui' && textgen_settings.streaming));
@@ -3265,7 +3259,7 @@ export async function generateRaw(prompt, api, instructOverride, quietToLoud, sy
         }
 
         if (data.error) {
-            throw new Error(data.error);
+            throw new Error(data.response);
         }
 
         const message = cleanUpMessage(extractMessageFromData(data), false, false, true);
@@ -3337,11 +3331,11 @@ function removeLastMessage() {
  * @param {GenerateOptions} options Generation options
  * @param {boolean} dryRun Whether to actually generate a message or just assemble the prompt
  * @returns {Promise<any>} Returns a promise that resolves when the text is done generating.
- * @typedef {{automatic_trigger?: boolean, force_name2?: boolean, quiet_prompt?: string, quietToLoud?: boolean, skipWIAN?: boolean, force_chid?: number, signal?: AbortSignal, quietImage?: string, maxLoops?: number, quietName?: string }} GenerateOptions
+ * @typedef {{automatic_trigger?: boolean, force_name2?: boolean, quiet_prompt?: string, quietToLoud?: boolean, skipWIAN?: boolean, force_chid?: number, signal?: AbortSignal, quietImage?: string, quietName?: string }} GenerateOptions
  */
-export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, maxLoops, quietName } = {}, dryRun = false) {
+export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName } = {}, dryRun = false) {
     console.log('Generate entered');
-    await eventSource.emit(event_types.GENERATION_STARTED, type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, maxLoops }, dryRun);
+    await eventSource.emit(event_types.GENERATION_STARTED, type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage }, dryRun);
     setGenerationProgress(0);
     generation_started = new Date();
 
@@ -3373,7 +3367,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
     if (main_api === 'textgenerationwebui' &&
         textgen_settings.streaming &&
         textgen_settings.legacy_api &&
-        (textgen_settings.type === OOBA || textgen_settings.type === APHRODITE)) {
+        textgen_settings.type === OOBA) {
         toastr.error('Streaming is not supported for the Legacy API. Update Ooba and use new API to enable streaming.', undefined, { timeOut: 10000, preventDuplicates: true });
         unblockGeneration(type);
         return Promise.resolve();
@@ -3403,7 +3397,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
     if (selected_group && !is_group_generating) {
         if (!dryRun) {
             // Returns the promise that generateGroupWrapper returns; resolves when generation is done
-            return generateGroupWrapper(false, type, { quiet_prompt, force_chid, signal: abortController.signal, quietImage, maxLoops });
+            return generateGroupWrapper(false, type, { quiet_prompt, force_chid, signal: abortController.signal, quietImage });
         }
 
         const characterIndexMap = new Map(characters.map((char, index) => [char.avatar, index]));
@@ -4352,6 +4346,7 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             main_api: main_api,
             instruction: isInstruct ? substituteParams(power_user.prefer_character_prompt && system ? system : power_user.instruct.system_prompt) : '',
             userPersona: (power_user.persona_description_position == persona_description_positions.IN_PROMPT ? (persona || '') : ''),
+            tokenizer: getFriendlyTokenizerName(main_api).tokenizerName || '',
         };
 
         //console.log(additionalPromptStuff);
@@ -4413,9 +4408,9 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
             generatedPromptCache = '';
 
             if (data?.response) {
-                toastr.error(data.response, 'API Error');
+                toastr.error(data.response, 'API Error', { preventDuplicates: true });
             }
-            throw data?.response;
+            throw new Error(data?.response);
         }
 
         //const getData = await response.json();
@@ -4435,53 +4430,30 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_pro
         const displayIncomplete = type === 'quiet' && !quietToLoud;
         getMessage = cleanUpMessage(getMessage, isImpersonate, isContinue, displayIncomplete);
 
-        if (getMessage.length > 0 || data.allowEmptyResponse) {
-            if (isImpersonate) {
-                $('#send_textarea').val(getMessage)[0].dispatchEvent(new Event('input', { bubbles: true }));
-                generatedPromptCache = '';
-                await eventSource.emit(event_types.IMPERSONATE_READY, getMessage);
-            }
-            else if (type == 'quiet') {
-                unblockGeneration(type);
-                return getMessage;
+        if (isImpersonate) {
+            $('#send_textarea').val(getMessage)[0].dispatchEvent(new Event('input', { bubbles: true }));
+            generatedPromptCache = '';
+            await eventSource.emit(event_types.IMPERSONATE_READY, getMessage);
+        }
+        else if (type == 'quiet') {
+            unblockGeneration(type);
+            return getMessage;
+        }
+        else {
+            // Without streaming we'll be having a full message on continuation. Treat it as a last chunk.
+            if (originalType !== 'continue') {
+                ({ type, getMessage } = await saveReply(type, getMessage, false, title, swipes));
             }
             else {
-                // Without streaming we'll be having a full message on continuation. Treat it as a last chunk.
-                if (originalType !== 'continue') {
-                    ({ type, getMessage } = await saveReply(type, getMessage, false, title, swipes));
-                }
-                else {
-                    ({ type, getMessage } = await saveReply('appendFinal', getMessage, false, title, swipes));
-                }
-
-                // This relies on `saveReply` having been called to add the message to the chat, so it must be last.
-                parseAndSaveLogprobs(data, continue_mag);
+                ({ type, getMessage } = await saveReply('appendFinal', getMessage, false, title, swipes));
             }
 
-            if (type !== 'quiet') {
-                playMessageSound();
-            }
-        } else {
-            // If maxLoops is not passed in (e.g. first time generating), set it to MAX_GENERATION_LOOPS
-            maxLoops ??= MAX_GENERATION_LOOPS;
+            // This relies on `saveReply` having been called to add the message to the chat, so it must be last.
+            parseAndSaveLogprobs(data, continue_mag);
+        }
 
-            if (maxLoops === 0) {
-                if (type !== 'quiet') {
-                    throwCircuitBreakerError();
-                }
-                throw new Error('Generate circuit breaker interruption');
-            }
-
-            // regenerate with character speech reenforced
-            // to make sure we leave on swipe type while also adding the name2 appendage
-            await delay(1000);
-            // A message was already deleted on regeneration, so instead treat is as a normal gen
-            if (type === 'regenerate') {
-                type = 'normal';
-            }
-            // The first await is for waiting for the generate to start. The second one is waiting for it to finish
-            const result = await await Generate(type, { automatic_trigger, force_name2: true, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, maxLoops: maxLoops - 1 });
-            return result;
+        if (type !== 'quiet') {
+            playMessageSound();
         }
 
         if (power_user.auto_swipe) {
@@ -5061,7 +5033,7 @@ export async function itemizedParams(itemizedPrompts, thisPromptSet, incomingMes
         params.promptBiasTokensPercentage = ((params.promptBiasTokens / (params.totalTokensInPrompt)) * 100).toFixed(2);
         params.worldInfoStringTokensPercentage = ((params.worldInfoStringTokens / (params.totalTokensInPrompt)) * 100).toFixed(2);
         params.allAnchorsTokensPercentage = ((params.allAnchorsTokens / (params.totalTokensInPrompt)) * 100).toFixed(2);
-        params.selectedTokenizer = getFriendlyTokenizerName(params.this_main_api).tokenizerName;
+        params.selectedTokenizer = itemizedPrompts[thisPromptSet]?.tokenizer || getFriendlyTokenizerName(params.this_main_api).tokenizerName;
     }
     return params;
 }
@@ -5252,11 +5224,6 @@ function getGenerateUrl(api) {
         default:
             throw new Error(`Unknown API: ${api}`);
     }
-}
-
-function throwCircuitBreakerError() {
-    callPopup(`Could not extract reply in ${MAX_GENERATION_LOOPS} attempts. Try generating again`, 'text');
-    unblockGeneration();
 }
 
 function extractTitleFromData(data) {
@@ -5735,10 +5702,10 @@ export function deactivateSendButtons() {
 }
 
 export function resetChatState() {
+    // replaces deleted charcter name with system user since it will be displayed next.
+    name2 = (this_chid === undefined && neutralCharacterName) ? neutralCharacterName : systemUserName;
     //unsets expected chid before reloading (related to getCharacters/printCharacters from using old arrays)
     this_chid = undefined;
-    // replaces deleted charcter name with system user since it will be displayed next.
-    name2 = systemUserName;
     // sets up system user to tell user about having deleted a character
     chat.splice(0, chat.length, ...SAFETY_CHAT);
     // resets chat metadata
@@ -7486,7 +7453,7 @@ export function showSwipeButtons() {
 
     const currentMessage = $('#chat').children().filter(`[mesid="${chat.length - 1}"]`);
     const swipeId = chat[chat.length - 1].swipe_id;
-    var swipesCounterHTML = (`${(swipeId + 1)}/${(chat[chat.length - 1].swipes.length)}`);
+    const swipeCounterText = (`${(swipeId + 1)}\u200B/\u200b${(chat[chat.length - 1].swipes.length)}`);
 
     if (swipeId !== undefined && (chat[chat.length - 1].swipes.length > 1 || swipeId > 0)) {
         currentMessage.children('.swipe_left').css('display', 'flex');
@@ -7503,7 +7470,7 @@ export function showSwipeButtons() {
     }
     //console.log(swipesCounterHTML);
 
-    $('.swipes-counter').html(swipesCounterHTML);
+    $('.swipes-counter').text(swipeCounterText);
 
     //console.log(swipeId);
     //console.log(chat[chat.length - 1].swipes.length);
@@ -7892,13 +7859,19 @@ async function createOrEditCharacter(e) {
         formData.set('avatar', convertedFile);
     }
 
-    if ($('#form_create').attr('actiontype') == 'createcharacter') {
-        if (String($('#character_name_pole').val()).length > 0) {
-            if (is_group_generating || is_send_press) {
-                toastr.error('Cannot create characters while generating. Stop the request and try again.', 'Creation aborted');
-                throw new Error('Cannot import character while generating');
-            }
+    const headers = getRequestHeaders();
+    delete headers['Content-Type'];
 
+    if ($('#form_create').attr('actiontype') == 'createcharacter') {
+        if (String($('#character_name_pole').val()).length === 0) {
+            toastr.error('Name is required');
+            return;
+        }
+        if (is_group_generating || is_send_press) {
+            toastr.error('Cannot create characters while generating. Stop the request and try again.', 'Creation aborted');
+            return;
+        }
+        try {
             //if the character name text area isn't empty (only posible when creating a new character)
             let url = '/api/characters/create';
 
@@ -7913,142 +7886,133 @@ async function createOrEditCharacter(e) {
 
             formData.append('extensions', JSON.stringify(create_save.extensions));
 
-            await jQuery.ajax({
-                type: 'POST',
-                url: url,
-                data: formData,
-                beforeSend: function () {
-                    $('#create_button').attr('disabled', String(true));
-                    $('#create_button').attr('value', '⏳');
-                },
-                cache: false,
-                contentType: false,
-                processData: false,
-                success: async function (html) {
-                    $('#character_cross').trigger('click'); //closes the advanced character editing popup
-                    const fields = [
-                        { id: '#character_name_pole', callback: value => create_save.name = value },
-                        { id: '#description_textarea', callback: value => create_save.description = value },
-                        { id: '#creator_notes_textarea', callback: value => create_save.creator_notes = value },
-                        { id: '#character_version_textarea', callback: value => create_save.character_version = value },
-                        { id: '#post_history_instructions_textarea', callback: value => create_save.post_history_instructions = value },
-                        { id: '#system_prompt_textarea', callback: value => create_save.system_prompt = value },
-                        { id: '#tags_textarea', callback: value => create_save.tags = value },
-                        { id: '#creator_textarea', callback: value => create_save.creator = value },
-                        { id: '#personality_textarea', callback: value => create_save.personality = value },
-                        { id: '#firstmessage_textarea', callback: value => create_save.first_message = value },
-                        { id: '#talkativeness_slider', callback: value => create_save.talkativeness = value, defaultValue: talkativeness_default },
-                        { id: '#scenario_pole', callback: value => create_save.scenario = value },
-                        { id: '#depth_prompt_prompt', callback: value => create_save.depth_prompt_prompt = value },
-                        { id: '#depth_prompt_depth', callback: value => create_save.depth_prompt_depth = value, defaultValue: depth_prompt_depth_default },
-                        { id: '#depth_prompt_role', callback: value => create_save.depth_prompt_role = value, defaultValue: depth_prompt_role_default },
-                        { id: '#mes_example_textarea', callback: value => create_save.mes_example = value },
-                        { id: '#character_json_data', callback: () => { } },
-                        { id: '#alternate_greetings_template', callback: value => create_save.alternate_greetings = value, defaultValue: [] },
-                        { id: '#character_world', callback: value => create_save.world = value },
-                        { id: '#_character_extensions_fake', callback: value => create_save.extensions = {} },
-                    ];
-
-                    fields.forEach(field => {
-                        const fieldValue = field.defaultValue !== undefined ? field.defaultValue : '';
-                        $(field.id).val(fieldValue);
-                        field.callback && field.callback(fieldValue);
-                    });
-
-                    $('#character_popup-button-h3').text('Create character');
-
-                    create_save.avatar = '';
-
-                    $('#create_button').removeAttr('disabled');
-                    $('#add_avatar_button').replaceWith(
-                        $('#add_avatar_button').val('').clone(true),
-                    );
-
-                    $('#create_button').attr('value', '✅');
-                    let oldSelectedChar = null;
-                    if (this_chid !== undefined) {
-                        oldSelectedChar = characters[this_chid].avatar;
-                    }
-
-                    console.log(`new avatar id: ${html}`);
-                    createTagMapFromList('#tagList', html);
-                    await getCharacters();
-
-                    select_rm_info('char_create', html, oldSelectedChar);
-
-                    crop_data = undefined;
-                },
-                error: function (jqXHR, exception) {
-                    $('#create_button').removeAttr('disabled');
-                },
+            const fetchResult = await fetch(url, {
+                method: 'POST',
+                headers: headers,
+                body: formData,
+                cache: 'no-cache',
             });
-        } else {
-            toastr.error('Name is required');
+
+            if (!fetchResult.ok) {
+                throw new Error('Fetch result is not ok');
+            }
+
+            const avatarId = await fetchResult.text();
+
+            $('#character_cross').trigger('click'); //closes the advanced character editing popup
+            const fields = [
+                { id: '#character_name_pole', callback: value => create_save.name = value },
+                { id: '#description_textarea', callback: value => create_save.description = value },
+                { id: '#creator_notes_textarea', callback: value => create_save.creator_notes = value },
+                { id: '#character_version_textarea', callback: value => create_save.character_version = value },
+                { id: '#post_history_instructions_textarea', callback: value => create_save.post_history_instructions = value },
+                { id: '#system_prompt_textarea', callback: value => create_save.system_prompt = value },
+                { id: '#tags_textarea', callback: value => create_save.tags = value },
+                { id: '#creator_textarea', callback: value => create_save.creator = value },
+                { id: '#personality_textarea', callback: value => create_save.personality = value },
+                { id: '#firstmessage_textarea', callback: value => create_save.first_message = value },
+                { id: '#talkativeness_slider', callback: value => create_save.talkativeness = value, defaultValue: talkativeness_default },
+                { id: '#scenario_pole', callback: value => create_save.scenario = value },
+                { id: '#depth_prompt_prompt', callback: value => create_save.depth_prompt_prompt = value },
+                { id: '#depth_prompt_depth', callback: value => create_save.depth_prompt_depth = value, defaultValue: depth_prompt_depth_default },
+                { id: '#depth_prompt_role', callback: value => create_save.depth_prompt_role = value, defaultValue: depth_prompt_role_default },
+                { id: '#mes_example_textarea', callback: value => create_save.mes_example = value },
+                { id: '#character_json_data', callback: () => { } },
+                { id: '#alternate_greetings_template', callback: value => create_save.alternate_greetings = value, defaultValue: [] },
+                { id: '#character_world', callback: value => create_save.world = value },
+                { id: '#_character_extensions_fake', callback: value => create_save.extensions = {} },
+            ];
+
+            fields.forEach(field => {
+                const fieldValue = field.defaultValue !== undefined ? field.defaultValue : '';
+                $(field.id).val(fieldValue);
+                field.callback && field.callback(fieldValue);
+            });
+
+            $('#character_popup-button-h3').text('Create character');
+
+            create_save.avatar = '';
+
+            $('#add_avatar_button').replaceWith(
+                $('#add_avatar_button').val('').clone(true),
+            );
+
+            let oldSelectedChar = null;
+            if (this_chid !== undefined) {
+                oldSelectedChar = characters[this_chid].avatar;
+            }
+
+            console.log(`new avatar id: ${avatarId}`);
+            createTagMapFromList('#tagList', avatarId);
+            await getCharacters();
+
+            select_rm_info('char_create', avatarId, oldSelectedChar);
+
+            crop_data = undefined;
+
+        } catch (error) {
+            console.error('Error creating character', error);
+            toastr.error('Failed to create character');
         }
     } else {
-        let url = '/api/characters/edit';
+        try {
+            let url = '/api/characters/edit';
 
-        if (crop_data != undefined) {
-            url += `?crop=${encodeURIComponent(JSON.stringify(crop_data))}`;
-        }
-
-        formData.delete('alternate_greetings');
-        const chid = $('.open_alternate_greetings').data('chid');
-        if (chid && Array.isArray(characters[chid]?.data?.alternate_greetings)) {
-            for (const value of characters[chid].data.alternate_greetings) {
-                formData.append('alternate_greetings', value);
+            if (crop_data != undefined) {
+                url += `?crop=${encodeURIComponent(JSON.stringify(crop_data))}`;
             }
-        }
 
-        await jQuery.ajax({
-            type: 'POST',
-            url: url,
-            data: formData,
-            beforeSend: function () {
-                $('#create_button').attr('disabled', String(true));
-                $('#create_button').attr('value', 'Save');
-            },
-            cache: false,
-            contentType: false,
-            processData: false,
-            success: async function (html) {
-                $('#create_button').removeAttr('disabled');
-
-                await getOneCharacter(formData.get('avatar_url'));
-                favsToHotswap(); // Update fav state
-
-                $('#add_avatar_button').replaceWith(
-                    $('#add_avatar_button').val('').clone(true),
-                );
-                $('#create_button').attr('value', 'Save');
-                crop_data = undefined;
-                eventSource.emit(event_types.CHARACTER_EDITED, { detail: { id: this_chid, character: characters[this_chid] } });
-
-                // Recreate the chat if it hasn't been used at least once (i.e. with continue).
-                const message = getFirstMessage();
-                const shouldRegenerateMessage =
-                    !isNewChat &&
-                    message.mes &&
-                    !selected_group &&
-                    !chat_metadata['tainted'] &&
-                    (chat.length === 0 || (chat.length === 1 && !chat[0].is_user && !chat[0].is_system));
-
-                if (shouldRegenerateMessage) {
-                    chat.splice(0, chat.length, message);
-                    const messageId = (chat.length - 1);
-                    await eventSource.emit(event_types.MESSAGE_RECEIVED, messageId);
-                    await clearChat();
-                    await printMessages();
-                    await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, messageId);
-                    await saveChatConditional();
+            formData.delete('alternate_greetings');
+            const chid = $('.open_alternate_greetings').data('chid');
+            if (chid && Array.isArray(characters[chid]?.data?.alternate_greetings)) {
+                for (const value of characters[chid].data.alternate_greetings) {
+                    formData.append('alternate_greetings', value);
                 }
-            },
-            error: function (jqXHR, exception) {
-                $('#create_button').removeAttr('disabled');
-                console.log('Error! Either a file with the same name already existed, or the image file provided was in an invalid format. Double check that the image is not a webp.');
-                toastr.error('Something went wrong while saving the character, or the image file provided was in an invalid format. Double check that the image is not a webp.');
-            },
-        });
+            }
+
+            const fetchResult = await fetch(url, {
+                method: 'POST',
+                headers: headers,
+                body: formData,
+                cache: 'no-cache',
+            });
+
+            if (!fetchResult.ok) {
+                throw new Error('Fetch result is not ok');
+            }
+
+            await getOneCharacter(formData.get('avatar_url'));
+            favsToHotswap(); // Update fav state
+
+            $('#add_avatar_button').replaceWith(
+                $('#add_avatar_button').val('').clone(true),
+            );
+            $('#create_button').attr('value', 'Save');
+            crop_data = undefined;
+            await eventSource.emit(event_types.CHARACTER_EDITED, { detail: { id: this_chid, character: characters[this_chid] } });
+
+            // Recreate the chat if it hasn't been used at least once (i.e. with continue).
+            const message = getFirstMessage();
+            const shouldRegenerateMessage =
+                !isNewChat &&
+                message.mes &&
+                !selected_group &&
+                !chat_metadata['tainted'] &&
+                (chat.length === 0 || (chat.length === 1 && !chat[0].is_user && !chat[0].is_system));
+
+            if (shouldRegenerateMessage) {
+                chat.splice(0, chat.length, message);
+                const messageId = (chat.length - 1);
+                await eventSource.emit(event_types.MESSAGE_RECEIVED, messageId);
+                await clearChat();
+                await printMessages();
+                await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, messageId);
+                await saveChatConditional();
+            }
+        } catch (error) {
+            console.log(error);
+            toastr.error('Something went wrong while saving the character, or the image file provided was in an invalid format. Double check that the image is not a webp.');
+        }
     }
 }
 
@@ -8271,29 +8235,6 @@ function swipe_left() {      // when we swipe left..but no generation.
     if (chat[chat.length - 1]['swipe_id'] < 0) {
         chat[chat.length - 1]['swipe_id'] = 0;
     }
-}
-
-/**
- * Creates a new branch from the message with the given ID
- * @param {number} mesId Message ID
- * @returns {Promise<string>} Branch file name
- */
-async function branchChat(mesId) {
-    if (this_chid === undefined && !selected_group) {
-        toastr.info('No character selected.', 'Branch creation aborted');
-        return;
-    }
-
-    const fileName = await createBranch(mesId);
-    await saveItemizedPrompts(fileName);
-
-    if (selected_group) {
-        await openGroupChat(selected_group, fileName);
-    } else {
-        await openCharacterChat(fileName);
-    }
-
-    return fileName;
 }
 
 // when we click swipe right button
@@ -8563,7 +8504,7 @@ async function selectContextCallback(args, name) {
 
 async function selectInstructCallback(args, name) {
     if (!name) {
-        return power_user.instruct.preset;
+        return power_user.instruct.enabled || isTrueBoolean(args?.forceGet) ? power_user.instruct.preset : '';
     }
 
     const quiet = isTrueBoolean(args?.quiet);
@@ -8866,7 +8807,7 @@ export async function renameChat(oldFileName, newName) {
         is_group: !!selected_group,
         avatar_url: characters[this_chid]?.avatar,
         original_file: `${oldFileName}.jsonl`,
-        renamed_file: `${newName}.jsonl`,
+        renamed_file: `${newName.trim()}.jsonl`,
     };
 
     try {
@@ -8885,6 +8826,10 @@ export async function renameChat(oldFileName, newName) {
 
         if (data.error) {
             throw new Error('Server returned an error.');
+        }
+
+        if (data.sanitizedFileName) {
+            newName = data.sanitizedFileName;
         }
 
         if (selected_group) {
@@ -9008,15 +8953,12 @@ export async function deleteCharacter(characterKey, { deleteChats = true } = {})
  * It also ensures to save the settings after all the operations.
  */
 async function removeCharacterFromUI() {
+    preserveNeutralChat();
     await clearChat();
-    $('#character_cross').click();
-    this_chid = undefined;
-    characters.length = 0;
-    name2 = systemUserName;
-    chat.splice(0, chat.length, ...SAFETY_CHAT);
-    chat_metadata = {};
+    $('#character_cross').trigger('click');
+    resetChatState();
     $(document.getElementById('rm_button_selected_ch')).children('h2').text('');
-    this_chid = undefined;
+    restoreNeutralChat();
     await getCharacters();
     await printMessages();
     saveSettingsDebounced();
@@ -9264,6 +9206,13 @@ jQuery(async function () {
                 defaultValue: 'false',
                 enumList: commonEnumProviders.boolean('trueFalse')(),
             }),
+            SlashCommandNamedArgument.fromProps({
+                name: 'forceGet',
+                description: 'Force getting a name even if instruct mode is disabled',
+                typeList: [ARGUMENT_TYPE.BOOLEAN],
+                defaultValue: 'false',
+                enumList: commonEnumProviders.boolean('trueFalse')(),
+            }),
         ],
         unnamedArgumentList: [
             SlashCommandArgument.fromProps({
@@ -9274,7 +9223,8 @@ jQuery(async function () {
         ],
         helpString: `
             <div>
-                Selects instruct mode template by name. Gets the current instruct template if no name is provided.
+                Selects instruct mode template by name. Enables instruct mode if not already enabled.
+                Gets the current instruct template if no name is provided and instruct mode is enabled or <code>forceGet=true</code> is passed.
             </div>
             <div>
                 <strong>Example:</strong>
@@ -10258,7 +10208,7 @@ jQuery(async function () {
                 .closest('.mes_block')
                 .find('.mes_text')
                 .append(
-                    '<textarea id=\'curEditTextarea\' class=\'edit_textarea\' style=\'max-width:auto;\'></textarea>',
+                    '<textarea id=\'curEditTextarea\' class=\'edit_textarea mdHotkeys\' style=\'max-width:auto;\'></textarea>',
                 );
             $('#curEditTextarea').val(text);
             let edit_textarea = $(this)
@@ -10601,44 +10551,6 @@ jQuery(async function () {
 
     $('#dupe_button').click(async function () {
         await duplicateCharacter();
-    });
-
-    $(document).on('click', '.select_chat_block, .bookmark_link, .mes_bookmark', async function () {
-        let file_name = $(this).hasClass('mes_bookmark')
-            ? $(this).closest('.mes').attr('bookmark_link')
-            : $(this).attr('file_name').replace('.jsonl', '');
-
-        if (!file_name) {
-            return;
-        }
-
-        try {
-            showLoader();
-            if (selected_group) {
-                await openGroupChat(selected_group, file_name);
-            } else {
-                await openCharacterChat(file_name);
-            }
-        } finally {
-            hideLoader();
-        }
-
-        $('#shadow_select_chat_popup').css('display', 'none');
-        $('#load_select_chat_div').css('display', 'block');
-    });
-
-    $(document).on('click', '.mes_create_bookmark', async function () {
-        var selected_mes_id = $(this).closest('.mes').attr('mesid');
-        if (selected_mes_id !== undefined) {
-            createNewBookmark(selected_mes_id);
-        }
-    });
-
-    $(document).on('click', '.mes_create_branch', async function () {
-        var selected_mes_id = $(this).closest('.mes').attr('mesid');
-        if (selected_mes_id !== undefined) {
-            branchChat(Number(selected_mes_id));
-        }
     });
 
     $(document).on('click', '.mes_stop', function () {

@@ -254,6 +254,7 @@ let power_user = {
     },
 
     reasoning: {
+        auto_parse: false,
         add_to_prompts: false,
         prefix: '<think>\n',
         suffix: '\n</think>',
@@ -2917,6 +2918,46 @@ export function flushEphemeralStoppingStrings() {
 }
 
 /**
+ * Checks if the generated text should be filtered based on the auto-swipe settings.
+ * @param {string} text The text to check
+ * @returns {boolean} If the generated text should be filtered
+ */
+export function generatedTextFiltered(text) {
+    /**
+     * Checks if the given text contains any of the blacklisted words.
+     * @param {string} text The text to check
+     * @param {string[]} blacklist The list of blacklisted words
+     * @param {number} threshold The number of blacklisted words that need to be present to trigger the check
+     * @returns {boolean} Whether the text contains blacklisted words
+     */
+    function containsBlacklistedWords(text, blacklist, threshold) {
+        const regex = new RegExp(`\\b(${blacklist.join('|')})\\b`, 'gi');
+        const matches = text.match(regex) || [];
+        return matches.length >= threshold;
+    }
+
+    // Make sure a generated text is non-empty
+    // Otherwise we might get in a loop with a broken API
+    text = text.trim();
+    if (text.length > 0) {
+        if (power_user.auto_swipe_minimum_length) {
+            if (text.length < power_user.auto_swipe_minimum_length) {
+                console.log('Generated text size too small');
+                return true;
+            }
+        }
+        if (power_user.auto_swipe_blacklist.length && power_user.auto_swipe_blacklist_threshold) {
+            if (containsBlacklistedWords(text, power_user.auto_swipe_blacklist, power_user.auto_swipe_blacklist_threshold)) {
+                console.log('Generated text has blacklisted words');
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
  * Gets the custom stopping strings from the power user settings.
  * @param {number | undefined} limit Number of strings to return. If 0 or undefined, returns all strings.
  * @returns {string[]} An array of custom stopping strings
@@ -3887,9 +3928,9 @@ $(document).ready(() => {
         helpString: 'Start a new chat with a random character. If an argument is provided, only considers characters that have the specified tag.',
     }));
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'delmode',
+        name: 'del',
         callback: doDelMode,
-        aliases: ['del'],
+        aliases: ['delete', 'delmode'],
         unnamedArgumentList: [
             new SlashCommandArgument(
                 'optional number', [ARGUMENT_TYPE.NUMBER], false,

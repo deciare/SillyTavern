@@ -50,8 +50,10 @@ export const SECRET_KEYS = {
     TAVILY: 'api_key_tavily',
     NANOGPT: 'api_key_nanogpt',
     BFL: 'api_key_bfl',
+    FALAI: 'api_key_falai',
     GENERIC: 'api_key_generic',
     DEEPSEEK: 'api_key_deepseek',
+    SERPER: 'api_key_serper',
 };
 
 // These are the keys that are safe to expose, even if allowKeysExposure is false

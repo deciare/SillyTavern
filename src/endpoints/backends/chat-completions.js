@@ -288,7 +288,6 @@ async function sendMakerSuiteRequest(request, response) {
 
     const model = String(request.body.model);
     const stream = Boolean(request.body.stream);
-    const showThoughts = Boolean(request.body.include_reasoning);
     const isThinking = model.includes('thinking');
 
     const generationConfig = {
@@ -335,12 +334,6 @@ async function sendMakerSuiteRequest(request, response) {
 
         if (should_use_system_prompt) {
             body.systemInstruction = prompt.system_instruction;
-        }
-
-        if (isThinking && showThoughts) {
-            generationConfig.thinkingConfig = {
-                includeThoughts: true,
-            };
         }
 
         return body;
@@ -677,6 +670,11 @@ async function sendDeepSeekRequest(request, response) {
         if (request.body.logprobs > 0) {
             bodyParams['top_logprobs'] = request.body.logprobs;
             bodyParams['logprobs'] = true;
+        }
+
+        if (Array.isArray(request.body.tools) && request.body.tools.length > 0) {
+            bodyParams['tools'] = request.body.tools;
+            bodyParams['tool_choice'] = request.body.tool_choice;
         }
 
         const postProcessType = String(request.body.model).endsWith('-reasoner') ? 'deepseek-reasoner' : 'deepseek';

@@ -2,7 +2,6 @@ import process from 'node:process';
 import express from 'express';
 import fetch from 'node-fetch';
 
-import { jsonParser } from '../../express-common.js';
 import {
     CHAT_COMPLETION_SOURCES,
     GEMINI_SAFETY,
@@ -499,6 +498,12 @@ async function sendMakerSuiteRequest(request, response) {
 async function sendAI21Request(request, response) {
     if (!request.body) return response.sendStatus(400);
 
+    const apiKey = readSecret(request.user.directories, SECRET_KEYS.AI21);
+    if (!apiKey) {
+        console.warn('AI21 API key is missing.');
+        return response.status(400).send({ error: true });
+    }
+
     const controller = new AbortController();
     console.debug(request.body.messages);
     request.socket.removeAllListeners('close');
@@ -514,13 +519,14 @@ async function sendAI21Request(request, response) {
         top_p: request.body.top_p,
         stop: request.body.stop,
         stream: request.body.stream,
+        tools: request.body.tools,
     };
     const options = {
         method: 'POST',
         headers: {
             accept: 'application/json',
             'content-type': 'application/json',
-            Authorization: `Bearer ${readSecret(request.user.directories, SECRET_KEYS.AI21)}`,
+            Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -586,6 +592,7 @@ async function sendMistralAIRequest(request, response) {
             'stream': request.body.stream,
             'safe_prompt': request.body.safe_prompt,
             'random_seed': request.body.seed === -1 ? undefined : request.body.seed,
+            'stop': Array.isArray(request.body.stop) && request.body.stop.length > 0 ? request.body.stop : undefined,
         };
 
         if (Array.isArray(request.body.tools) && request.body.tools.length > 0) {
@@ -813,7 +820,7 @@ async function sendDeepSeekRequest(request, response) {
 
 export const router = express.Router();
 
-router.post('/status', jsonParser, async function (request, response_getstatus_openai) {
+router.post('/status', async function (request, response_getstatus_openai) {
     if (!request.body) return response_getstatus_openai.sendStatus(400);
 
     let api_url;
@@ -929,7 +936,7 @@ router.post('/status', jsonParser, async function (request, response_getstatus_o
     }
 });
 
-router.post('/bias', jsonParser, async function (request, response) {
+router.post('/bias', async function (request, response) {
     if (!request.body || !Array.isArray(request.body))
         return response.sendStatus(400);
 
@@ -1014,7 +1021,7 @@ router.post('/bias', jsonParser, async function (request, response) {
 });
 
 
-router.post('/generate', jsonParser, function (request, response) {
+router.post('/generate', function (request, response) {
     if (!request.body) return response.status(400).send({ error: true });
 
     switch (request.body.chat_completion_source) {

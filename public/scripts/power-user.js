@@ -540,7 +540,7 @@ async function switchLabMode() {
         $('#labModeWarning').addClass('displayNone');
 
         $('#amount_gen').attr('min', '16')
-            .attr('max', '2048')
+            .attr('max', '64000')
             .attr('step', '1');
     }
 }

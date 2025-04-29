@@ -1,4 +1,5 @@
 import { Fuse, DOMPurify } from '../lib.js';
+import { flashHighlight } from './utils.js';
 
 import {
     Generate,
@@ -21,6 +22,7 @@ import {
     extractMessageBias,
     generateQuietPrompt,
     generateRaw,
+    getFirstDisplayedMessageId,
     getThumbnailUrl,
     is_send_press,
     main_api,
@@ -75,6 +77,9 @@ import { SlashCommandBreakController } from './slash-commands/SlashCommandBreakC
 import { SlashCommandExecutionError } from './slash-commands/SlashCommandExecutionError.js';
 import { slashCommandReturnHelper } from './slash-commands/SlashCommandReturnHelper.js';
 import { accountStorage } from './util/AccountStorage.js';
+import { SlashCommandDebugController } from './slash-commands/SlashCommandDebugController.js';
+import { SlashCommandScope } from './slash-commands/SlashCommandScope.js';
+import { t } from './i18n.js';
 export {
     executeSlashCommands, executeSlashCommandsWithOptions, getSlashCommandsHelp, registerSlashCommand,
 };
@@ -224,6 +229,7 @@ export function initDefaultSlashCommands() {
     }));
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'sendas',
+        rawQuotes: true,
         callback: sendMessageAs,
         returns: 'Optionally the text of the sent message, if specified in the "return" argument',
         namedArgumentList: [
@@ -290,6 +296,7 @@ export function initDefaultSlashCommands() {
     }));
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'sys',
+        rawQuotes: true,
         callback: sendNarratorMessage,
         aliases: ['nar'],
         returns: 'Optionally the text of the sent message, if specified in the "return" argument',
@@ -354,6 +361,7 @@ export function initDefaultSlashCommands() {
     }));
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'comment',
+        rawQuotes: true,
         callback: sendCommentMessage,
         returns: 'Optionally the text of the sent message, if specified in the "return" argument',
         namedArgumentList: [
@@ -571,6 +579,7 @@ export function initDefaultSlashCommands() {
     }));
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'send',
+        rawQuotes: true,
         callback: sendUserMessageCallback,
         returns: 'Optionally the text of the sent message, if specified in the "return" argument',
         namedArgumentList: [
@@ -667,11 +676,21 @@ export function initDefaultSlashCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'hide',
         callback: hideMessageCallback,
+        namedArgumentList: [
+            SlashCommandNamedArgument.fromProps({
+                name: 'name',
+                description: 'only hide messages from a certain character or persona',
+                typeList: [ARGUMENT_TYPE.STRING],
+                enumProvider: commonEnumProviders.messageNames,
+                isRequired: false,
+                acceptsMultiple: false,
+            }),
+        ],
         unnamedArgumentList: [
             SlashCommandArgument.fromProps({
-                description: 'message index (starts with 0) or range',
+                description: 'message index (starts with 0) or range, defaults to the last message index if not provided',
                 typeList: [ARGUMENT_TYPE.NUMBER, ARGUMENT_TYPE.RANGE],
-                isRequired: true,
+                isRequired: false,
                 enumProvider: commonEnumProviders.messages(),
             }),
         ],
@@ -680,11 +699,21 @@ export function initDefaultSlashCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'unhide',
         callback: unhideMessageCallback,
+        namedArgumentList: [
+            SlashCommandNamedArgument.fromProps({
+                name: 'name',
+                description: 'only unhide messages from a certain character or persona',
+                typeList: [ARGUMENT_TYPE.STRING],
+                enumProvider: commonEnumProviders.messageNames,
+                isRequired: false,
+                acceptsMultiple: false,
+            }),
+        ],
         unnamedArgumentList: [
             SlashCommandArgument.fromProps({
-                description: 'message index (starts with 0) or range',
+                description: 'message index (starts with 0) or range, defaults to the last message index if not provided',
                 typeList: [ARGUMENT_TYPE.NUMBER, ARGUMENT_TYPE.RANGE],
-                isRequired: true,
+                isRequired: false,
                 enumProvider: commonEnumProviders.messages(),
             }),
         ],
@@ -913,6 +942,7 @@ export function initDefaultSlashCommands() {
     }));
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'echo',
+        rawQuotes: true,
         callback: echoCallback,
         returns: 'the text',
         namedArgumentList: [
@@ -1534,16 +1564,28 @@ export function initDefaultSlashCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'buttons',
         callback: buttonsCallback,
-        returns: 'clicked button label',
+        returns: 'clicked button label (or array of labels if multiple is enabled)',
         namedArgumentList: [
-            new SlashCommandNamedArgument(
-                'labels', 'button labels', [ARGUMENT_TYPE.LIST], true,
-            ),
+            SlashCommandNamedArgument.fromProps({
+                name: 'labels',
+                description: 'button labels',
+                typeList: [ARGUMENT_TYPE.LIST],
+                isRequired: true,
+            }),
+            SlashCommandNamedArgument.fromProps({
+                name: 'multiple',
+                description: 'if enabled multiple buttons can be clicked/toggled, and all clicked buttons are returned as an array',
+                typeList: [ARGUMENT_TYPE.BOOLEAN],
+                enumList: commonEnumProviders.boolean('trueFalse')(),
+                defaultValue: 'false',
+            }),
         ],
         unnamedArgumentList: [
-            new SlashCommandArgument(
-                'text', [ARGUMENT_TYPE.STRING], true,
-            ),
+            SlashCommandArgument.fromProps({
+                description: 'text',
+                typeList: [ARGUMENT_TYPE.STRING],
+                isRequired: true,
+            }),
         ],
         helpString: `
         <div>
@@ -2090,6 +2132,65 @@ export function initDefaultSlashCommands() {
         `,
     }));
 
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'chat-jump',
+        aliases: ['chat-scrollto', 'floor-teleport'],
+        callback: async (_, index) => {
+            const messageIndex = Number(index);
+
+            if (isNaN(messageIndex) || messageIndex < 0 || messageIndex >= chat.length) {
+                toastr.warning(t`Invalid message index: ${index}. Please enter a number between 0 and ${chat.length}.`);
+                console.warn(`WARN: Invalid message index provided for /chat-jump: ${index}. Max index: ${chat.length}`);
+                return '';
+            }
+
+            // Load more messages if needed
+            const firstDisplayedMessageId = getFirstDisplayedMessageId();
+            if (isFinite(firstDisplayedMessageId) && messageIndex < firstDisplayedMessageId) {
+                const needToLoadCount = firstDisplayedMessageId - messageIndex;
+                await showMoreMessages(needToLoadCount);
+                await delay(1);
+            }
+
+            const chatContainer = document.getElementById('chat');
+            const messageElement = document.querySelector(`#chat .mes[mesid="${messageIndex}"]`);
+
+            if (messageElement instanceof HTMLElement && chatContainer instanceof HTMLElement) {
+                const elementRect = messageElement.getBoundingClientRect();
+                const containerRect = chatContainer.getBoundingClientRect();
+
+                const scrollPosition = elementRect.top - containerRect.top + chatContainer.scrollTop;
+                chatContainer.scrollTo({
+                    top: scrollPosition,
+                    behavior: 'smooth',
+                });
+
+                flashHighlight($(messageElement), 2000);
+            } else {
+                toastr.warning(t`Could not find element for message ${messageIndex}. It might not be rendered yet or the index is invalid.`);
+                console.warn(`WARN: Element not found for message index ${messageIndex} in /chat-jump.`);
+            }
+
+            return '';
+        },
+        unnamedArgumentList: [
+            SlashCommandArgument.fromProps({
+                description: 'The message index (0-based) to scroll to.',
+                typeList: [ARGUMENT_TYPE.NUMBER],
+                isRequired: true,
+                enumProvider: commonEnumProviders.messages(),
+            }),
+        ],
+        helpString: `
+        <div>
+            Scrolls the chat view to the specified message index. Index starts at 0.
+        </div>
+        <div>
+            <strong>Example:</strong> <pre><code>/chat-jump 10</code></pre> Scrolls to the 11th message (id=10).
+        </div>
+    `,
+    }));
+
     registerVariableCommands();
 }
 
@@ -2116,8 +2217,8 @@ function injectCallback(args, value) {
         'assistant': extension_prompt_roles.ASSISTANT,
     };
 
-    const id = String(args?.id);
-    const ephemeral = isTrueBoolean(String(args?.ephemeral));
+    const id = String(args?.id ?? '');
+    const ephemeral = isTrueBoolean(String(args?.ephemeral ?? ''));
 
     if (!id) {
         console.warn('WARN: No ID provided for /inject command');
@@ -2355,6 +2456,18 @@ async function trimTokensCallback(arg, value) {
     }
 }
 
+/**
+ * Displays a popup with buttons based on provided labels and handles button interactions.
+ *
+ * @param {object} args - Named arguments for the command
+ * @param {string} args.labels - JSON string of an array of button labels
+ * @param {string} [args.multiple=false] - Flag indicating if multiple buttons can be toggled
+ * @param {string} text - The text content to be displayed within the popup
+ *
+ * @returns {Promise<string>} - A promise that resolves to a string of the button labels selected
+ *                              If 'multiple' is true, returns a JSON string array of labels.
+ *                              If 'multiple' is false, returns a single label string.
+ */
 async function buttonsCallback(args, text) {
     try {
         /** @type {string[]} */
@@ -2364,6 +2477,10 @@ async function buttonsCallback(args, text) {
             console.warn('WARN: Invalid labels provided for /buttons command');
             return '';
         }
+
+        /** @type {Set<number>} */
+        const multipleToggledState = new Set();
+        const multiple = isTrueBoolean(args?.multiple);
 
         // Map custom buttons to results. Start at 2 because 1 and 0 are reserved for ok and cancel
         const resultToButtonMap = new Map(buttons.map((button, index) => [index + 2, button]));
@@ -2382,11 +2499,24 @@ async function buttonsCallback(args, text) {
 
             for (const [result, button] of resultToButtonMap) {
                 const buttonElement = document.createElement('div');
-                buttonElement.classList.add('menu_button', 'result-control', 'wide100p');
-                buttonElement.dataset.result = String(result);
-                buttonElement.addEventListener('click', async () => {
-                    await popup.complete(result);
-                });
+                buttonElement.classList.add('menu_button', 'wide100p');
+
+                if (multiple) {
+                    buttonElement.classList.add('toggleable');
+                    buttonElement.dataset.toggleValue = String(result);
+                    buttonElement.addEventListener('click', async () => {
+                        buttonElement.classList.toggle('toggled');
+                        if (buttonElement.classList.contains('toggled')) {
+                            multipleToggledState.add(result);
+                        } else {
+                            multipleToggledState.delete(result);
+                        }
+                    });
+                } else {
+                    buttonElement.classList.add('result-control');
+                    buttonElement.dataset.result = String(result);
+                }
+
                 buttonElement.innerText = button;
                 buttonContainer.appendChild(buttonElement);
             }
@@ -2402,10 +2532,19 @@ async function buttonsCallback(args, text) {
             popupContainer.style.flexDirection = 'column';
             popupContainer.style.maxHeight = '80vh'; // Limit the overall height of the popup
 
-            popup = new Popup(popupContainer, POPUP_TYPE.TEXT, '', { okButton: 'Cancel', allowVerticalScrolling: true });
+            popup = new Popup(popupContainer, POPUP_TYPE.TEXT, '', { okButton: multiple ? t`Ok` : t`Cancel`, allowVerticalScrolling: true });
             popup.show()
-                .then((result => resolve(typeof result === 'number' ? resultToButtonMap.get(result) ?? '' : '')))
+                .then((result => resolve(getResult(result))))
                 .catch(() => resolve(''));
+
+            /** @returns {string} @param {string|number|boolean} result */
+            function getResult(result) {
+                if (multiple) {
+                    const array = result === POPUP_RESULT.AFFIRMATIVE ? Array.from(multipleToggledState).map(r => resultToButtonMap.get(r) ?? '') : [];
+                    return JSON.stringify(array);
+                }
+                return typeof result === 'number' ? resultToButtonMap.get(result) ?? '' : '';
+            }
         });
     } catch {
         return '';
@@ -3034,37 +3173,29 @@ async function askCharacter(args, text) {
     return await slashCommandReturnHelper.doReturn(args.return ?? 'pipe', message, { objectToStringFunc: x => x.mes });
 }
 
-async function hideMessageCallback(_, arg) {
-    if (!arg) {
-        console.warn('WARN: No argument provided for /hide command');
-        return '';
-    }
-
-    const range = stringToRange(arg, 0, chat.length - 1);
+async function hideMessageCallback(args, value) {
+    const range = value ? stringToRange(value, 0, chat.length - 1) : { start: chat.length - 1, end: chat.length - 1 };
 
     if (!range) {
-        console.warn(`WARN: Invalid range provided for /hide command: ${arg}`);
+        console.warn(`WARN: Invalid range provided for /hide command: ${value}`);
         return '';
     }
 
-    await hideChatMessageRange(range.start, range.end, false);
+    const nameFilter = String(args.name ?? '').trim();
+    await hideChatMessageRange(range.start, range.end, false, nameFilter);
     return '';
 }
 
-async function unhideMessageCallback(_, arg) {
-    if (!arg) {
-        console.warn('WARN: No argument provided for /unhide command');
-        return '';
-    }
-
-    const range = stringToRange(arg, 0, chat.length - 1);
+async function unhideMessageCallback(args, value) {
+    const range = value ? stringToRange(value, 0, chat.length - 1) : { start: chat.length - 1, end: chat.length - 1 };
 
     if (!range) {
-        console.warn(`WARN: Invalid range provided for /unhide command: ${arg}`);
+        console.warn(`WARN: Invalid range provided for /unhide command: ${value}`);
         return '';
     }
 
-    await hideChatMessageRange(range.start, range.end, true);
+    const nameFilter = String(args.name ?? '').trim();
+    await hideChatMessageRange(range.start, range.end, true, nameFilter);
     return '';
 }
 
@@ -3075,7 +3206,7 @@ async function unhideMessageCallback(_, arg) {
  * @returns {void}
  */
 function performGroupMemberAction(chid, action) {
-    const memberSelector = `.group_member[chid="${chid}"]`;
+    const memberSelector = `.group_member[data-chid="${chid}"]`;
     // Do not optimize. Paginator gets recreated on every action
     const paginationSelector = '#rm_group_members_pagination';
     const pageSizeSelector = '#rm_group_members_pagination select';
@@ -3616,14 +3747,14 @@ export async function sendMessageAs(args, text) {
     if (!isNaN(insertAt) && insertAt >= 0 && insertAt <= chat.length) {
         chat.splice(insertAt, 0, message);
         await saveChatConditional();
-        await eventSource.emit(event_types.MESSAGE_RECEIVED, insertAt);
+        await eventSource.emit(event_types.MESSAGE_RECEIVED, insertAt, 'command');
         await reloadCurrentChat();
-        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, insertAt);
+        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, insertAt, 'command');
     } else {
         chat.push(message);
-        await eventSource.emit(event_types.MESSAGE_RECEIVED, (chat.length - 1));
+        await eventSource.emit(event_types.MESSAGE_RECEIVED, (chat.length - 1), 'command');
         addOneMessage(message);
-        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, (chat.length - 1));
+        await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, (chat.length - 1), 'command');
         await saveChatConditional();
     }
 
@@ -3871,8 +4002,8 @@ function getModelOptions(quiet) {
         { id: 'model_groq_select', api: 'openai', type: chat_completion_sources.GROQ },
         { id: 'model_nanogpt_select', api: 'openai', type: chat_completion_sources.NANOGPT },
         { id: 'model_01ai_select', api: 'openai', type: chat_completion_sources.ZEROONEAI },
-        { id: 'model_blockentropy_select', api: 'openai', type: chat_completion_sources.BLOCKENTROPY },
         { id: 'model_deepseek_select', api: 'openai', type: chat_completion_sources.DEEPSEEK },
+        { id: 'model_xai_select', api: 'openai', type: chat_completion_sources.XAI },
         { id: 'model_novel_select', api: 'novel', type: null },
         { id: 'horde_model', api: 'koboldhorde', type: null },
     ];
@@ -4333,7 +4464,7 @@ const clearCommandProgressDebounced = debounce(clearCommandProgress);
  * @prop {boolean} [handleParserErrors] (true) Whether to handle parser errors (show toast on error) or throw.
  * @prop {SlashCommandScope} [scope] (null) The scope to be used when executing the commands.
  * @prop {boolean} [handleExecutionErrors] (false) Whether to handle execution errors (show toast on error) or throw
- * @prop {{[id:PARSER_FLAG]:boolean}} [parserFlags] (null) Parser flags to apply
+ * @prop {import('./slash-commands/SlashCommandParser.js').ParserFlags} [parserFlags] (null) Parser flags to apply
  * @prop {SlashCommandAbortController} [abortController] (null) Controller used to abort or pause command execution
  * @prop {SlashCommandDebugController} [debugController] (null) Controller used to control debug execution
  * @prop {(done:number, total:number)=>void} [onProgress] (null) Callback to handle progress events
@@ -4343,7 +4474,7 @@ const clearCommandProgressDebounced = debounce(clearCommandProgress);
 /**
  * @typedef ExecuteSlashCommandsOnChatInputOptions
  * @prop {SlashCommandScope} [scope] (null) The scope to be used when executing the commands.
- * @prop {{[id:PARSER_FLAG]:boolean}} [parserFlags] (null) Parser flags to apply
+ * @prop {import('./slash-commands/SlashCommandParser.js').ParserFlags} [parserFlags] (null) Parser flags to apply
  * @prop {boolean} [clearChatInput] (false) Whether to clear the chat input textarea
  * @prop {string} [source] (null) String indicating where the code come from (e.g., QR name)
  */

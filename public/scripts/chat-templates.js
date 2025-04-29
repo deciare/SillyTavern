@@ -47,6 +47,10 @@ const hash_derivations = {
         // gemma-2-2b-it
         'Gemma 2'
     ,
+    '7de1c58e208eda46e9c7f86397df37ec49883aeece39fb961e0a6b24088dd3c4':
+        // gemma-3
+        'Gemma 2'
+    ,
 
     // Cohere
     '3b54f5c219ae1caa5c0bb2cdc7c001863ca6807cf888e4240e8739fa7eb9e02e':
@@ -69,6 +73,11 @@ const hash_derivations = {
     // DeepSeek R1
     'b6835114b7303ddd78919a82e4d9f7d8c26ed0d7dfc36beeb12d524f6144eab1':
         'DeepSeek-V2.5'
+    ,
+
+    // THUDM-GLM 4
+    '854b703e44ca06bdb196cc471c728d15dbab61e744fe6cdce980086b61646ed1':
+        'GLM-4'
     ,
 };
 

@@ -407,9 +407,9 @@ function RA_autoconnect(PrevApi) {
                     || (secret_state[SECRET_KEYS.PERPLEXITY] && oai_settings.chat_completion_source == chat_completion_sources.PERPLEXITY)
                     || (secret_state[SECRET_KEYS.GROQ] && oai_settings.chat_completion_source == chat_completion_sources.GROQ)
                     || (secret_state[SECRET_KEYS.ZEROONEAI] && oai_settings.chat_completion_source == chat_completion_sources.ZEROONEAI)
-                    || (secret_state[SECRET_KEYS.BLOCKENTROPY] && oai_settings.chat_completion_source == chat_completion_sources.BLOCKENTROPY)
                     || (secret_state[SECRET_KEYS.NANOGPT] && oai_settings.chat_completion_source == chat_completion_sources.NANOGPT)
                     || (secret_state[SECRET_KEYS.DEEPSEEK] && oai_settings.chat_completion_source == chat_completion_sources.DEEPSEEK)
+                    || (secret_state[SECRET_KEYS.XAI] && oai_settings.chat_completion_source == chat_completion_sources.XAI)
                     || (isValidUrl(oai_settings.custom_url) && oai_settings.chat_completion_source == chat_completion_sources.CUSTOM)
                 ) {
                     $('#api_button_openai').trigger('click');
@@ -1018,6 +1018,14 @@ export function initRossMods() {
         return false;
     }
 
+    function isModifiedKeyboardEvent(event) {
+        return (event instanceof KeyboardEvent &&
+            event.shiftKey ||
+            event.ctrlKey ||
+            event.altKey ||
+            event.metaKey);
+    }
+
     $(document).on('keydown', async function (event) {
         await processHotkeys(event.originalEvent);
     });
@@ -1040,7 +1048,7 @@ export function initRossMods() {
         //Enter to send when send_textarea in focus
         if (document.activeElement == hotkeyTargets['send_textarea']) {
             const sendOnEnter = shouldSendOnEnter();
-            if (!event.shiftKey && !event.ctrlKey && !event.altKey && event.key == 'Enter' && sendOnEnter) {
+            if (!event.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && event.key == 'Enter' && sendOnEnter) {
                 event.preventDefault();
                 sendTextareaMessage();
                 return;
@@ -1141,7 +1149,8 @@ export function initRossMods() {
                 $('#send_textarea').val() === '' &&
                 $('#character_popup').css('display') === 'none' &&
                 $('#shadow_select_chat_popup').css('display') === 'none' &&
-                !isInputElementInFocus()
+                !isInputElementInFocus() &&
+                !isModifiedKeyboardEvent(event)
             ) {
                 $('.swipe_left:last').trigger('click', { source: 'keyboard', repeated: event.repeat });
                 return;
@@ -1154,7 +1163,8 @@ export function initRossMods() {
                 $('#send_textarea').val() === '' &&
                 $('#character_popup').css('display') === 'none' &&
                 $('#shadow_select_chat_popup').css('display') === 'none' &&
-                !isInputElementInFocus()
+                !isInputElementInFocus() &&
+                !isModifiedKeyboardEvent(event)
             ) {
                 $('.swipe_right:last').trigger('click', { source: 'keyboard', repeated: event.repeat });
                 return;

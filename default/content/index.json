@@ -540,7 +540,7 @@
         "type": "context"
     },
     {
-        "filename": "presets/context/Pygmalion.json",
+        "filename": "presets/context/Metharme.json",
         "type": "context"
     },
     {
@@ -620,10 +620,6 @@
         "type": "instruct"
     },
     {
-        "filename": "presets/instruct/Pygmalion.json",
-        "type": "instruct"
-    },
-    {
         "filename": "presets/instruct/Story.json",
         "type": "instruct"
     },
@@ -689,6 +685,10 @@
     },
     {
         "filename": "presets/instruct/ChatML-Names.json",
+        "type": "instruct"
+    },
+    {
+        "filename": "presets/instruct/KoboldAI.json",
         "type": "instruct"
     },
     {
@@ -814,5 +814,29 @@
     {
         "filename": "presets/reasoning/Blank.json",
         "type": "reasoning"
+    },
+    {
+        "filename": "presets/instruct/Dots1.json",
+        "type": "instruct"
+    },
+    {
+        "filename": "presets/context/Dots1.json",
+        "type": "context"
+    },
+    {
+        "filename": "presets/context/Mistral V7-Tekken.json",
+        "type": "context"
+    },
+    {
+        "filename": "presets/instruct/Mistral V7-Tekken.json",
+        "type": "instruct"
+    },
+    {
+        "filename": "presets/instruct/Moonshot AI.json",
+        "type": "instruct"
+    },
+    {
+        "filename": "presets/context/Moonshot AI.json",
+        "type": "context"
     }
 ]

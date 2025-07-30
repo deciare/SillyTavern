@@ -1,10 +1,10 @@
-FROM node:lts-alpine3.19
+FROM node:lts-alpine3.21
 
 # Arguments
 ARG APP_HOME=/home/node/app
 
 # Install system dependencies
-RUN apk add --no-cache gcompat tini git
+RUN apk add --no-cache gcompat tini git git-lfs
 
 # Create app directory
 WORKDIR ${APP_HOME}
@@ -19,7 +19,7 @@ RUN \
   echo "*** Install npm packages ***" && \
   npm i --no-audit --no-fund --loglevel=error --no-progress --omit=dev && npm cache clean --force
 
-# Copy default chats, characters and user avatars to <folder>.default folder
+# Create config directory and link config.yaml
 RUN \
   rm -f "config.yaml" || true && \
   ln -s "./config/config.yaml" "config.yaml" || true && \
@@ -30,7 +30,7 @@ RUN \
   echo "*** Run Webpack ***" && \
   node "./docker/build-lib.js"
 
-# Cleanup unnecessary files
+# Set the entrypoint script
 RUN \
   echo "*** Cleanup ***" && \
   mv "./docker/docker-entrypoint.sh" "./" && \

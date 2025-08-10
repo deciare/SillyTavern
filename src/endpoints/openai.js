@@ -73,6 +73,10 @@ router.post('/caption-image', async (request, response) => {
             key = readSecret(request.user.directories, SECRET_KEYS.COHERE);
         }
 
+        if (request.body.api === 'moonshot') {
+            key = readSecret(request.user.directories, SECRET_KEYS.MOONSHOT);
+        }
+
         const noKeyTypes = ['custom', 'ooba', 'koboldcpp', 'vllm', 'llamacpp', 'pollinations'];
         if (!key && !request.body.reverse_proxy && !noKeyTypes.includes(request.body.api)) {
             console.warn('No key found for API', request.body.api);
@@ -151,6 +155,10 @@ router.post('/caption-image', async (request, response) => {
         if (request.body.api === 'pollinations') {
             headers = { Authorization: '' };
             apiUrl = 'https://text.pollinations.ai/openai/chat/completions';
+        }
+
+        if (request.body.api === 'moonshot') {
+            apiUrl = 'https://api.moonshot.ai/v1/chat/completions';
         }
 
         if (['koboldcpp', 'vllm', 'llamacpp', 'ooba'].includes(request.body.api)) {
@@ -263,19 +271,27 @@ router.post('/generate-voice', async (request, response) => {
             return response.sendStatus(400);
         }
 
+        const requestBody = {
+            input: request.body.text,
+            response_format: 'mp3',
+            voice: request.body.voice ?? 'alloy',
+            speed: request.body.speed ?? 1,
+            model: request.body.model ?? 'tts-1',
+        };
+
+        if (request.body.instructions) {
+            requestBody.instructions = request.body.instructions;
+        }
+
+        console.debug('OpenAI TTS request', requestBody);
+
         const result = await fetch('https://api.openai.com/v1/audio/speech', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${key}`,
             },
-            body: JSON.stringify({
-                input: request.body.text,
-                response_format: 'mp3',
-                voice: request.body.voice ?? 'alloy',
-                speed: request.body.speed ?? 1,
-                model: request.body.model ?? 'tts-1',
-            }),
+            body: JSON.stringify(requestBody),
         });
 
         if (!result.ok) {

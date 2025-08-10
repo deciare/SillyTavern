@@ -65,6 +65,7 @@ const API_DEEPSEEK = 'https://api.deepseek.com/beta';
 const API_XAI = 'https://api.x.ai/v1';
 const API_AIMLAPI = 'https://api.aimlapi.com/v1';
 const API_POLLINATIONS = 'https://text.pollinations.ai/openai';
+const API_MOONSHOT = 'https://api.moonshot.ai/v1';
 
 /**
  * Gets OpenRouter transforms based on the request.
@@ -95,6 +96,23 @@ function getOpenRouterPlugins(request) {
     }
 
     return plugins;
+}
+
+/**
+ * Hacky way to use JSON schema only if json_object format is supported.
+ * @param {object} bodyParams Additional body parameters
+ * @param {object[]} messages Array of messages
+ * @param {object} jsonSchema JSON schema object
+ */
+function setJsonObjectFormat(bodyParams, messages, jsonSchema) {
+    bodyParams['response_format'] = {
+        type: 'json_object',
+    };
+    const message = {
+        role: 'user',
+        content: `JSON schema for the response:\n${JSON.stringify(jsonSchema.value, null, 4)}`,
+    };
+    messages.push(message);
 }
 
 /**
@@ -131,6 +149,7 @@ async function sendClaudeRequest(request, response) {
         const convertedPrompt = convertClaudeMessages(request.body.messages, request.body.assistant_prefill, useSystemPrompt, useTools, getPromptNames(request));
         const useThinking = /^claude-(3-7|opus-4|sonnet-4)/.test(request.body.model);
         const useWebSearch = /^claude-(3-5|3-7|opus-4|sonnet-4)/.test(request.body.model) && Boolean(request.body.enable_web_search);
+        const isOpus41 = /^claude-opus-4-1/.test(request.body.model);
         const cacheTTL = getConfigValue('claude.extendedTTL', false, 'boolean') ? '1h' : '5m';
         let fixThinkingPrefill = false;
         // Add custom stop sequences
@@ -198,6 +217,14 @@ async function sendClaudeRequest(request, response) {
         if (enableSystemPromptCache || cachingAtDepth !== -1) {
             betaHeaders.push('prompt-caching-2024-07-31');
             betaHeaders.push('extended-cache-ttl-2025-04-11');
+        }
+
+        if (isOpus41){
+            if (requestBody.top_p < 1) {
+                delete requestBody.temperature;
+            } else {
+                delete requestBody.top_p;
+            }
         }
 
         const reasoningEffort = request.body.reasoning_effort;
@@ -890,7 +917,7 @@ async function sendDeepSeekRequest(request, response) {
         const postProcessType = String(request.body.model).endsWith('-reasoner')
             ? PROMPT_PROCESSING_TYPE.STRICT_TOOLS
             : PROMPT_PROCESSING_TYPE.SEMI_TOOLS;
-        const processedMessages = addAssistantPrefix(postProcessPrompt(request.body.messages, postProcessType, getPromptNames(request)), bodyParams.tools);
+        const processedMessages = addAssistantPrefix(postProcessPrompt(request.body.messages, postProcessType, getPromptNames(request)), bodyParams.tools, 'prefix');
 
         const requestBody = {
             'messages': processedMessages,
@@ -1219,6 +1246,10 @@ router.post('/status', async function (request, statusResponse) {
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.GROQ) {
         apiUrl = API_GROQ;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.GROQ);
+        headers = {};
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT) {
+        apiUrl = API_MOONSHOT;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.MOONSHOT);
         headers = {};
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MAKERSUITE) {
         apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MAKERSUITE);
@@ -1598,17 +1629,17 @@ router.post('/generate', function (request, response) {
             referrer: 'sillytavern',
             seed: request.body.seed ?? Math.floor(Math.random() * 99999999),
         };
-        // Hack to support JSON schema
         if (request.body.json_schema) {
-            bodyParams['response_format'] = {
-                type: 'json_object',
-            };
-            const message = {
-                role: 'user',
-                content: `JSON schema for the response:\n${JSON.stringify(request.body.json_schema.value, null, 4)}`,
-            };
-            request.body.messages.push(message);
+            setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
         }
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.MOONSHOT) {
+        apiUrl = API_MOONSHOT;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.MOONSHOT);
+        headers = {};
+        bodyParams = {};
+        request.body.json_schema
+            ? setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema)
+            : addAssistantPrefix(request.body.messages, [], 'partial');
     } else {
         console.warn('This chat completion source is not supported yet.');
         return response.status(400).send({ error: true });
@@ -1616,8 +1647,26 @@ router.post('/generate', function (request, response) {
 
     // A few of OpenAIs reasoning models support reasoning effort
     if (request.body.reasoning_effort && [CHAT_COMPLETION_SOURCES.CUSTOM, CHAT_COMPLETION_SOURCES.OPENAI].includes(request.body.chat_completion_source)) {
-        if (['o1', 'o3-mini', 'o3-mini-2025-01-31', 'o4-mini', 'o4-mini-2025-04-16', 'o3', 'o3-2025-04-16'].includes(request.body.model)) {
-            bodyParams['reasoning_effort'] = request.body.reasoning_effort;
+        const reasoningEffortModels = [
+            'o1',
+            'o3-mini',
+            'o3-mini-2025-01-31',
+            'o4-mini',
+            'o4-mini-2025-04-16',
+            'o3',
+            'o3-2025-04-16',
+            'gpt-5',
+            'gpt-5-2025-08-07',
+            'gpt-5-mini',
+            'gpt-5-mini-2025-08-07',
+            'gpt-5-nano',
+            'gpt-5-nano-2025-08-07',
+        ];
+        const reasoningEffortMap = {
+            min: 'minimal',
+        };
+        if (reasoningEffortModels.includes(request.body.model)) {
+            bodyParams['reasoning_effort'] = reasoningEffortMap[request.body.reasoning_effort] ?? request.body.reasoning_effort;
         }
     }
 

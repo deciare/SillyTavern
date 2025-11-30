@@ -185,7 +185,7 @@ import {
 } from './scripts/utils.js';
 import { debounce_timeout, GENERATION_TYPE_TRIGGERS, IGNORE_SYMBOL, inject_ids, MEDIA_DISPLAY, MEDIA_SOURCE, MEDIA_TYPE, SCROLL_BEHAVIOR, SWIPE_DIRECTION } from './scripts/constants.js';
 
-import { cancelDebouncedMetadataSave, doDailyExtensionUpdatesCheck, extension_settings, initExtensions, loadExtensionSettings, runGenerationInterceptors, saveMetadataDebounced } from './scripts/extensions.js';
+import { cancelDebouncedMetadataSave, doDailyExtensionUpdatesCheck, extension_settings, initExtensions, loadExtensionSettings, runGenerationInterceptors } from './scripts/extensions.js';
 import { COMMENT_NAME_DEFAULT, CONNECT_API_MAP, executeSlashCommandsOnChatInput, initDefaultSlashCommands, isExecutingCommandsFromChatInput, pauseScriptExecution, stopScriptExecution, UNIQUE_APIS } from './scripts/slash-commands.js';
 import {
     tag_map,
@@ -1451,7 +1451,7 @@ function scrollOnMediaLoad() {
         }
         mediaLoaded++;
         if (mediaLoaded === media.length) {
-            scrollChatToBottom();
+            scrollChatToBottom({ waitForFrame: true });
         }
     }
 }
@@ -2077,9 +2077,12 @@ export function getMediaIndex(mes) {
 export function appendMediaToMessage(mes, messageElement, scrollBehavior = SCROLL_BEHAVIOR.ADJUST) {
     ensureMessageMediaIsArray(mes);
 
+    const fileWrapper = messageElement.find('.mes_file_wrapper');
+    const mediaWrapper = messageElement.find('.mes_media_wrapper');
+
     const hasMedia = Array.isArray(mes?.extra?.media) && mes.extra.media.length > 0;
     const hasFiles = Array.isArray(mes?.extra?.files) && mes.extra.files.length > 0;
-    const mediaDisplay = getMediaDisplay(mes);
+    const mediaDisplay = hasMedia ? getMediaDisplay(mes) : null;
     const hideMessageText = hasMedia && mes?.extra?.inline_image === false;
 
     const mediaBlocks = [];
@@ -2235,6 +2238,52 @@ export function appendMediaToMessage(mes, messageElement, scrollBehavior = SCROL
         return appendImageAttachment(attachment, index);
     }
 
+    /**
+     * Saves the current playback times of media elements in the message.
+     * @returns {Map<string, MediaState>} Media playback times by source URL
+     */
+    function saveMediaStates() {
+        const states = new Map();
+        const media = mediaWrapper.find('video, audio');
+        media.each((_, element) => {
+            if (element instanceof HTMLMediaElement) {
+                if (!element.currentSrc || element.readyState === HTMLMediaElement.HAVE_NOTHING) {
+                    return;
+                }
+                const state = { currentTime: element.currentTime, paused: element.paused };
+                states.set(element.currentSrc, state);
+            }
+        });
+        return states;
+    }
+
+    /**
+     * Restores the playback times of media elements in the message.
+     * @param {Map<string, MediaState>} states Media playback times by source URL
+     */
+    function restoreMediaStates(states) {
+        const media = mediaWrapper.find('video, audio');
+        media.each((_, element) => {
+            if (element instanceof HTMLMediaElement) {
+                const restoreState = () => {
+                    if (!states.has(element.currentSrc)) {
+                        return;
+                    }
+                    const state = states.get(element.currentSrc);
+                    element.currentTime = state.currentTime;
+                    if (!state.paused) {
+                        element.play();
+                    }
+                };
+                if (element.readyState < HTMLMediaElement.HAVE_METADATA) {
+                    element.addEventListener('loadedmetadata', () => restoreState(), { once: true });
+                } else {
+                    restoreState();
+                }
+            }
+        });
+    }
+
     // Add media gallery to message
     if (hasMedia && mediaDisplay === MEDIA_DISPLAY.GALLERY) {
         const mediaIndex = getMediaIndex(mes);
@@ -2258,7 +2307,7 @@ export function appendMediaToMessage(mes, messageElement, scrollBehavior = SCROL
     }
 
     // Remove existing file containers
-    messageElement.find('.mes_file_wrapper').empty();
+    fileWrapper.empty();
 
     // Add files to message
     if (hasFiles) {
@@ -2268,13 +2317,22 @@ export function appendMediaToMessage(mes, messageElement, scrollBehavior = SCROL
             template.attr('data-index', index);
             template.find('.mes_file_name').text(file.name).attr('title', file.name);
             template.find('.mes_file_size').text(humanFileSize(file.size)).attr('title', file.size);
-            messageElement.find('.mes_file_wrapper').append(template);
+            fileWrapper.append(template);
         }
+    }
+
+    // Early return if no media
+    if (!hasMedia) {
+        mediaWrapper.empty();
+        doAdjustScroll();
+        return;
     }
 
     // TODO: Consider making this awaitable
     Promise.race([Promise.all(mediaPromises), delay(debounce_timeout.short)]).then(() => {
-        messageElement.find('.mes_media_wrapper').empty().append(mediaBlocks);
+        const states = saveMediaStates();
+        mediaWrapper.empty().append(mediaBlocks);
+        restoreMediaStates(states);
         doAdjustScroll();
     });
 }
@@ -2540,8 +2598,19 @@ function formatGenerationTimer(gen_started, gen_finished, tokenCount, reasoningD
     return { timerValue, timerTitle };
 }
 
-export function scrollChatToBottom() {
-    if (power_user.auto_scroll_chat_to_bottom) {
+let requestId = null;
+
+/**
+ * Scrolls the chat to the bottom if configured to do so.
+ * @param {object} [options] Options
+ * @param {boolean} [options.waitForFrame] If true, waits for the animation frame before scrolling
+ */
+export function scrollChatToBottom({ waitForFrame } = {}) {
+    if (!power_user.auto_scroll_chat_to_bottom) {
+        return;
+    }
+
+    const doScroll = () => {
         let position = chatElement[0].scrollHeight;
 
         if (power_user.waifuMode) {
@@ -2553,7 +2622,23 @@ export function scrollChatToBottom() {
         }
 
         chatElement.scrollTop(position);
+        requestId = null;
+    };
+
+    // Do not check truthiness. requestId can loop to zero.
+    if (requestId !== null) {
+        cancelAnimationFrame(requestId);
     }
+
+    if (!waitForFrame) {
+        doScroll();
+        return;
+    }
+
+    // This prevents layout thrashing.
+    // https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame#return_value
+    // https://gist.github.com/paulirish/5d52fb081b3570c81e3a#file-what-forces-layout-md
+    requestId = requestAnimationFrame(() => doScroll());
 }
 
 /**
@@ -3215,7 +3300,7 @@ class StreamingProcessor {
             this.markUIGenStarted();
         }
         hideSwipeButtons({ hideCounters: true });
-        scrollChatToBottom();
+        scrollChatToBottom({ waitForFrame: true });
         return messageId;
     }
 
@@ -3318,7 +3403,7 @@ class StreamingProcessor {
         }
 
         if (!scrollLock) {
-            scrollChatToBottom();
+            scrollChatToBottom({ waitForFrame: true });
         }
     }
 
@@ -5687,7 +5772,7 @@ function extractImagesFromData(data, { mainApi = null, chatCompletionSource = nu
             switch (chatCompletionSource ?? oai_settings.chat_completion_source) {
                 case chat_completion_sources.VERTEXAI:
                 case chat_completion_sources.MAKERSUITE: {
-                    const inlineData = data?.responseContent?.parts?.filter(x => x.inlineData)?.map(x => x.inlineData);
+                    const inlineData = data?.responseContent?.parts?.filter(x => x.inlineData && !x.thought)?.map(x => x.inlineData);
                     if (Array.isArray(inlineData) && inlineData.length > 0) {
                         return inlineData.map(x => `data:${x.mimeType};base64,${x.data}`).filter(isDataURL);
                     }
@@ -6059,7 +6144,7 @@ async function processImageAttachment(message, { imageUrls }) {
         return;
     }
 
-    for (const [index, imageUrl] of imageUrls.entries()) {
+    for (const [index, imageUrl] of imageUrls.filter(onlyUnique).entries()) {
         if (!imageUrl) {
             continue;
         }
@@ -7337,7 +7422,7 @@ export async function getSettings() {
         loadNovelSettings(data, settings.nai_settings ?? settings);
 
         // TextGen
-        loadTextGenSettings(data, settings);
+        await loadTextGenSettings(data, settings);
 
         // OpenAI
         loadOpenAISettings(data, settings.oai_settings ?? settings);
@@ -8418,7 +8503,7 @@ export async function setCharacterSettingsOverrides() {
     chat_metadata['scenario'] = pendingChanges.scenario;
     chat_metadata['mes_example'] = pendingChanges.examples;
     chat_metadata['system_prompt'] = pendingChanges.system_prompt;
-    saveMetadataDebounced();
+    await saveMetadata();
 }
 
 /**
@@ -11075,7 +11160,7 @@ jQuery(async function () {
         const message = chat[this_edit_mes_id];
         const selectedSwipe = message['swipe_id'] ?? undefined;
         const swipesArray = Array.isArray(message['swipes']) ? message['swipes'] : [];
-        const canDeleteSwipe = !fromSlashCommand && !message.is_user && swipesArray.length > 1 && this_edit_mes_id === chat.length - 1 && selectedSwipe !== undefined;
+        const canDeleteSwipe = power_user.confirm_message_delete && !fromSlashCommand && !message.is_user && swipesArray.length > 1 && this_edit_mes_id === chat.length - 1 && selectedSwipe !== undefined;
         await deleteMessage(Number(this_edit_mes_id), canDeleteSwipe ? selectedSwipe : undefined, power_user.confirm_message_delete && fromSlashCommand !== true);
     });
 
@@ -11676,7 +11761,7 @@ jQuery(async function () {
     await firstLoadInit();
 
     window.addEventListener('beforeunload', (e) => {
-        if (isChatSaving) {
+        if (isChatSaving || this_edit_mes_id >= 0) {
             e.preventDefault();
             e.returnValue = true;
         }

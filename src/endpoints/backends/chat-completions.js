@@ -12,6 +12,8 @@ import {
     OPENAI_REASONING_EFFORT_MAP,
     OPENAI_REASONING_EFFORT_MODELS,
     OPENROUTER_HEADERS,
+    VERTEX_SAFETY,
+    ZAI_ENDPOINT,
 } from '../../constants.js';
 import {
     forwardFetchResponse,
@@ -74,7 +76,9 @@ const API_POLLINATIONS = 'https://text.pollinations.ai/openai';
 const API_MOONSHOT = 'https://api.moonshot.ai/v1';
 const API_FIREWORKS = 'https://api.fireworks.ai/inference/v1';
 const API_COMETAPI = 'https://api.cometapi.com/v1';
-const API_ZAI = 'https://api.z.ai/api/paas/v4';
+const API_ZAI_COMMON = 'https://api.z.ai/api/paas/v4';
+const API_ZAI_CODING = 'https://api.z.ai/api/coding/paas/v4';
+const API_SILICONFLOW = 'https://api.siliconflow.com/v1';
 
 /**
  * Gets OpenRouter transforms based on the request.
@@ -380,9 +384,10 @@ async function sendMakerSuiteRequest(request, response) {
             'gemini-2.0-flash-preview-image-generation',
             'gemini-2.5-flash-image-preview',
             'gemini-2.5-flash-image',
+            'gemini-3-pro-image-preview',
         ];
 
-        const isThinkingConfigModel = m => /^gemini-2.5-(flash|pro)/.test(m) && !/-image(-preview)?$/.test(m);
+        const isThinkingConfigModel = m => (/^gemini-2.5-(flash|pro)/.test(m) && !/-image(-preview)?$/.test(m)) || (/^gemini-3-pro/.test(m));
 
         const noSearchModels = [
             'gemini-2.0-flash-lite',
@@ -405,7 +410,7 @@ async function sendMakerSuiteRequest(request, response) {
 
         const tools = [];
         const prompt = convertGooglePrompt(request.body.messages, model, useSystemPrompt, getPromptNames(request));
-        let safetySettings = GEMINI_SAFETY;
+        const safetySettings = [...GEMINI_SAFETY, ...(useVertexAi ? VERTEX_SAFETY : [])];
 
         if (enableWebSearch && !enableImageModality && !isGemma && !isLearnLM && !noSearchModels.includes(model)) {
             tools.push({ google_search: {} });
@@ -544,8 +549,10 @@ async function sendMakerSuiteRequest(request, response) {
             }
         } else {
             if (!generateResponse.ok) {
-                console.warn(`${apiName} API returned error: ${generateResponse.status} ${generateResponse.statusText} ${await generateResponse.text()}`);
-                return response.status(500).send({ error: true });
+                const errorText = await generateResponse.text();
+                console.warn(`${apiName} API returned error: ${generateResponse.status} ${generateResponse.statusText} ${errorText}`);
+                const errorJson = tryParse(errorText) ?? { error: true };
+                return response.status(500).send(errorJson);
             }
 
             /** @type {any} */
@@ -1567,6 +1574,10 @@ router.post('/status', async function (request, statusResponse) {
             console.error('Azure OpenAI status check connection error:', error);
             return statusResponse.status(500).send({ error: true, message: 'Failed to connect to the Azure endpoint.' });
         }
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.SILICONFLOW) {
+        apiUrl = API_SILICONFLOW;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.SILICONFLOW);
+        headers = {};
     } else {
         console.warn('This chat completion source is not supported yet.');
         return statusResponse.status(400).send({ error: true });
@@ -1964,7 +1975,7 @@ router.post('/generate', function (request, response) {
         };
         throw new Error('This provider is temporarily disabled.');
     } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.ZAI) {
-        apiUrl = API_ZAI;
+        apiUrl = request.body.zai_endpoint === ZAI_ENDPOINT.CODING ? API_ZAI_CODING : API_ZAI_COMMON;
         apiKey = readSecret(request.user.directories, SECRET_KEYS.ZAI);
         headers = {
             'Accept-Language': 'en-US,en',
@@ -1974,6 +1985,14 @@ router.post('/generate', function (request, response) {
                 type: request.body.include_reasoning ? 'enabled' : 'disabled',
             },
         };
+        if (request.body.json_schema) {
+            setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
+        }
+    } else if (request.body.chat_completion_source === CHAT_COMPLETION_SOURCES.SILICONFLOW) {
+        apiUrl = API_SILICONFLOW;
+        apiKey = readSecret(request.user.directories, SECRET_KEYS.SILICONFLOW);
+        headers = {};
+        bodyParams = {};
         if (request.body.json_schema) {
             setJsonObjectFormat(bodyParams, request.body.messages, request.body.json_schema);
         }
@@ -2276,3 +2295,21 @@ multimodalModels.post('/xai', async (req, res) => {
 });
 
 router.use('/multimodal-models', multimodalModels);
+
+router.post('/process', async function (request, response) {
+    try {
+        if (!Array.isArray(request.body.messages)) {
+            return response.status(400).send({ error: 'Invalid messages format' });
+        }
+
+        if (!Object.values(PROMPT_PROCESSING_TYPE).includes(request.body.type)) {
+            return response.status(400).send({ error: 'Unknown processing type' });
+        }
+
+        const messages = postProcessPrompt(request.body.messages, request.body.type, getPromptNames(request));
+        return response.send({ messages });
+    } catch (error) {
+        console.error(error);
+        return response.sendStatus(500);
+    }
+});
